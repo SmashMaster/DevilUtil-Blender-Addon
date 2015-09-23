@@ -177,6 +177,7 @@ class LoopVertex:
     def __init__(self, mesh, poly, loop):
         self.poly = poly
         self.loop = loop
+        self.uv_loops = [uv_loop.data[loop.index] for uv_loop in mesh.uv_layers]
         self.color_loops = [color_loop.data[loop.index] for color_loop in mesh.vertex_colors]
         self.pointers = []
 
