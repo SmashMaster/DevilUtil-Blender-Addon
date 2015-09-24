@@ -18,163 +18,18 @@ def writePaddedJavaUTF(file, string):
 def vec3BlendToDevil(vector):
     return [vector[1], vector[2], vector[0]]
     
-def mat4BlendToDevilmat3(m):
-    return [m[1][1], m[1][2], m[1][0],    m[2][1], m[2][2], m[2][0],    m[0][1], m[0][2], m[0][0]]
+def quatBlendToDevil(quat):
+    return [quat[0], quat[2], quat[3], quat[1]]
 
-class IKConstraint:
-    def __init__(self, bone, constraint, bone_indices):
-        self.constraint = constraint
-        self.bone_index = bone_indices[bone.name]
-        self.target_index = bone_indices[constraint.subtarget]
-        self.pole_target_index = bone_indices[constraint.pole_subtarget]
+####################
+###MESH EXPORITNG###
+####################
 
-DVM_BONE_INHERIT_ROTATION_FLAG = 1
-DVM_BONE_LOCAL_LOCATION = 2
-
-def exportArmature(file, object):
-    armature = object.data
-    pose = object.pose
-    bones = armature.bones
-    num_bones = len(bones)
-    file.write(struct.pack('>i', num_bones))
-    
-    bone_indices = {}
-    
-    for i in range(num_bones):
-        bone_indices[bones[i].name] = i
-    
-    #Export bones
-    for bone in bones:
-        #Write bone name
-        writePaddedJavaUTF(file, bone.name)
-        
-        #Write bone parent
-        if bone.parent is not None:
-            file.write(struct.pack('>i', bone_indices[bone.parent.name]))
-        else:
-            file.write(struct.pack('>i', -1))
-        
-        #Write bone flags
-        flag_bits = 0
-        if bone.use_inherit_rotation:
-            flag_bits |= DVM_BONE_INHERIT_ROTATION_FLAG
-        if bone.use_local_location:
-            flag_bits |= DVM_BONE_LOCAL_LOCATION
-        file.write(struct.pack('>i', flag_bits))
-        
-        #Write bone head and tail
-        file.write(struct.pack('>3f', *vec3BlendToDevil(bone.head_local)))
-        file.write(struct.pack('>3f', *vec3BlendToDevil(bone.tail_local)))
-        
-        #Write bone matrix
-        file.write(struct.pack('>9f', *mat4BlendToDevilmat3(bone.matrix_local)))
-    
-    #Export IK constraints
-    ik_constraints = []
-    for pose_bone in pose.bones:
-        for constraint in pose_bone.constraints:
-            if isinstance(constraint, bpy.types.KinematicConstraint):
-                if constraint.chain_count != 2:
-                    continue
-                if constraint.target is None or constraint.subtarget not in bone_indices:
-                    continue
-                if constraint.pole_target is None or constraint.pole_subtarget not in bone_indices:
-                    continue
-                ik_constraints.append(IKConstraint(pose_bone.bone, constraint, bone_indices))
-    
-    file.write(struct.pack('>i', len(ik_constraints)))
-    for ik_constraint in ik_constraints:
-        file.write(struct.pack('>i', ik_constraint.bone_index))
-        file.write(struct.pack('>i', ik_constraint.target_index))
-        file.write(struct.pack('>i', ik_constraint.pole_target_index))
-        file.write(struct.pack('>f', ik_constraint.constraint.pole_angle))
-    
-    return bone_indices
-
-DVM_PROPERTY_NAMES = ["LC", "RT"]
-DVM_PROPERTY_LOCATION = 0
-DVM_PROPERTY_ROTATION = 1
-DVM_REMAP_LOCATION = [2, 0, 1]
-DVM_REMAP_ROTATION = [0, 3, 1, 2]
-DVM_INTERPOLATION_CONSTANT = 0
-DVM_INTERPOLATION_LINEAR = 1
-DVM_INTERPOLATION_BEZIER = 2
-
-class BoneFCurve:
-    def __init__(self, fcurve, bone_index, property):
-        self.fcurve = fcurve
-        self.bone_index = bone_index
-        self.property = property
-        
-        if property == DVM_PROPERTY_LOCATION:
-            self.array_index = DVM_REMAP_LOCATION[fcurve.array_index]
-        elif property == DVM_PROPERTY_ROTATION:
-            self.array_index = DVM_REMAP_ROTATION[fcurve.array_index]
-    
-def exportAction(file, armature_bone_indices, action):
-    #Write action name
-    writePaddedJavaUTF(file, action.name)
-    
-    #Prepare fcurves
-    fcurves = []
-    for fcurve in action.fcurves:
-        #Ensure we're working with a pose FCurve
-        fpath = fcurve.data_path
-        if not fpath.startswith("pose.bones[\""):
-            continue
-        
-        #Ensure it has a proper name
-        fpath = fpath[12:]
-        bone_name_length = fpath.find("\"].")
-        if bone_name_length is -1:
-            continue
-        
-        #Ensure the bone actually exists
-        bone_name = fpath[:bone_name_length]
-        bone_index = armature_bone_indices[bone_name]
-        if bone_index is None:
-            continue
-        
-        #Ensure the property is valid
-        property_name = fpath[bone_name_length + 3:]
-        property = None
-        if property_name == "location":
-            property = DVM_PROPERTY_LOCATION
-        elif property_name == "rotation_quaternion":
-            property = DVM_PROPERTY_ROTATION
-        else:
-            continue
-        
-        fcurves.append(BoneFCurve(fcurve, bone_index, property))
-    
-    #Write fcurves
-    file.write(struct.pack('>i', len(fcurves)))
-    for fcurve in fcurves:
-        fcurve.fcurve.update()
-        
-        #Write bone, property, and property index
-        file.write(struct.pack('>i', fcurve.bone_index))
-        writeJavaUTF(file, DVM_PROPERTY_NAMES[fcurve.property])
-        file.write(struct.pack('>i', fcurve.array_index))
-        
-        #Write keyframes
-        keyframes = fcurve.fcurve.keyframe_points
-        file.write(struct.pack('>i', len(keyframes)))
-        for keyframe in keyframes:
-            interp_name = keyframe.interpolation
-            interp_id = DVM_INTERPOLATION_LINEAR
-            if interp_name == 'CONSTANT':
-                interp_id = DVM_INTERPOLATION_CONSTANT
-            elif interp_name == 'BEZIER':
-                interp_id = DVM_INTERPOLATION_BEZIER
-            
-            file.write(struct.pack('>i', interp_id))
-            file.write(struct.pack('>2f', *keyframe.co))
-            file.write(struct.pack('>2f', *keyframe.handle_left))
-            file.write(struct.pack('>2f', *keyframe.handle_right))
-
+#Vertex container which holds vertices and their loops
 class LoopVertex:
     def __init__(self, mesh, poly, loop):
+        self.index = -1
+        self.vert = mesh.vertices[loop.vertex_index]
         self.poly = poly
         self.loop = loop
         self.uv_loops = [uv_loop.data[loop.index] for uv_loop in mesh.uv_layers]
@@ -185,13 +40,14 @@ class Triangle:
     def __init__(self, indices):
         self.indices = indices
         self.loop_vertex_pointers = []
-
+        
+#Mutable LoopVertex wrapper to make dissolving vertices easy
 class LoopVertexPointer:
     def __init__(self, loop_vertex):
         self.loop_vertex = loop_vertex
         loop_vertex.pointers.append(self)
         
-def loopVerticesEqual(lva, lvb):
+def loopVerticesEqual(lva, lvb, has_tangents):
     #Ensure indices are equal
     if lva.loop.vertex_index != lvb.loop.vertex_index:
         return False
@@ -201,87 +57,211 @@ def loopVerticesEqual(lva, lvb):
         if a != b:
             return False
     
-    #Ensure uvs, colors, tangents, and groups are equal
+    #Ensure tangents are equal
+    if has_tangents:
+        for a, b in zip(lva.loop.tangent, lvb.loop.tangent):
+            if a != b:
+                return False
+    
+    #Ensure uvs are equal
+    for loopA, loopB, in zip(lva.uv_loops, lvb.uv_loops):
+        for a, b, in zip(loopA.uv, loopB.uv):
+            if a != b:
+                return False
+    
+    #Ensure colors are equal
+    for loopA, loopB, in zip(lva.color_loops, lvb.color_loops):
+        for a, b, in zip(loopA.color, loopB.color):
+            if a != b:
+                return False
+    
+    #Ensure same number of groups
+    if len(lva.vert.groups) != len(lvb.vert.groups):
+        return False
+    
+    #Ensure groups are equal
+    for ga, gb, in zip(lva.vert.groups, lvb.vert.groups):
+        if ga.group != gb.group:
+            return False
+        if ga.weight != gb.weight:
+            return False
     
     return True
 
-def prepareMesh(mesh):
-    #Make sure we have all of the data we need
-    mesh.calc_tessface()
-    mesh.calc_normals_split()
-    
-    num_uv_layers = len(mesh.uv_layers)
-    num_color_layers = len(mesh.vertex_colors)
-    num_groups = 0
-    
-    #Set up LoopVertex list
-    loop_vertex_sets = [set() for i in range(len(mesh.vertices))]
-    for poly in mesh.polygons:
-        for loop_index in range(poly.loop_start, poly.loop_start + poly.loop_total):
-            loop = mesh.loops[loop_index]
-            loop_vertex = LoopVertex(mesh, poly, loop)
-            loop_vertex_sets[loop.vertex_index].add(loop_vertex)
-    
-    #Set up Triangle list
-    triangles = []
-    for face in mesh.tessfaces:
-        verts = face.vertices
-        if len(verts) == 4:
-            triangles.append(Triangle([verts[0], verts[1], verts[2]]))
-            triangles.append(Triangle([verts[2], verts[3], verts[0]]))
+class ProcessedMesh:
+    def __init__(self, mesh):
+        #Set up fields
+        self.num_uv_layers = len(mesh.uv_layers)
+        self.num_color_layers = len(mesh.vertex_colors)
+        self.num_groups = 0
+        self.triangles = []
+        self.vertices = []
+        
+        has_tangents = self.num_uv_layers > 0
+        
+        #Prepare mesh
+        mesh.calc_tessface()
+        if has_tangents:
+            mesh.calc_tangents()
         else:
-            triangles.append(Triangle(verts))
-    
-    for triangle in triangles:
-        #Find which poly corresponds to this Triangle
-        polysets = [set(loop_vertex.poly for loop_vertex in loop_vertex_sets[i]) for i in triangle.indices]
-        triangle.poly = next(iter(set.intersection(*polysets)))
+            mesh.calc_normals_split()
         
-        #Find which loop_vertex objects correspond to each vertex of this Triangle
-        #Also set up pointers
-        for i in triangle.indices:
-            for loop_vertex in loop_vertex_sets[i]:
-                if loop_vertex.poly is triangle.poly:
-                    triangle.loop_vertex_pointers.append(LoopVertexPointer(loop_vertex))
-                    break
+        #Set up LoopVertex list
+        loop_vertex_sets = [set() for i in range(len(mesh.vertices))]
+        for poly in mesh.polygons:
+            for loop_index in range(poly.loop_start, poly.loop_start + poly.loop_total):
+                loop = mesh.loops[loop_index]
+                loop_vertex = LoopVertex(mesh, poly, loop)
+                loop_vertex_sets[loop.vertex_index].add(loop_vertex)
+        
+        #Populate triangle list
+        for face in mesh.tessfaces:
+            verts = face.vertices
+            if len(verts) == 4:
+                self.triangles.append(Triangle([verts[0], verts[1], verts[2]]))
+                self.triangles.append(Triangle([verts[2], verts[3], verts[0]]))
+            else:
+                self.triangles.append(Triangle(verts))
+        
+        for triangle in self.triangles:
+            #Find which poly corresponds to this Triangle
+            polysets = [set(loop_vertex.poly for loop_vertex in loop_vertex_sets[i]) for i in triangle.indices]
+            triangle.poly = next(iter(set.intersection(*polysets)))
             
-    #Dissolve redundant LoopVertex objects
-    for loop_vertices in loop_vertex_sets:
-        new_loop_vertices = set()
-        for loop_vertex in loop_vertices:
-            identical = None
-            for new_loop_vertex in new_loop_vertices:
-                if loopVerticesEqual(loop_vertex, new_loop_vertex):
-                    identical = new_loop_vertex
-                    for pointer in loop_vertex.pointers:
-                        pointer.loop_vertex = new_loop_vertex
-                        new_loop_vertex.pointers.append(pointer)
-                    break
-            if identical is None:
-                new_loop_vertices.add(loop_vertex)
-        loop_vertices.clear()
-        loop_vertices |= new_loop_vertices
+            #Find which loop_vertex objects correspond to each vertex of this Triangle
+            #Also set up pointers
+            for i in triangle.indices:
+                for loop_vertex in loop_vertex_sets[i]:
+                    if loop_vertex.poly is triangle.poly:
+                        triangle.loop_vertex_pointers.append(LoopVertexPointer(loop_vertex))
+                        break
         
-    #Do some final housecleaning
-    vertices = []
-    i = 0
-    
-    for loop_vertices in loop_vertex_sets:
-        for loop_vertex in loop_vertices:
-            loop_vertex.index = i
-            loop_vertex.vert = mesh.vertices[loop_vertex.loop.vertex_index]
-            i += 1
-            vertices.append(loop_vertex)
-    
-    return vertices, triangles, num_uv_layers, num_color_layers, num_groups
-
-DVM_MESH_FLAG_HAS_UVS = 1
-DVM_MESH_FLAG_HAS_VERTEX_COLORS = 2
+        #Dissolve redundant LoopVertex objects
+        for loop_vertices in loop_vertex_sets:
+            new_loop_vertices = set()
+            for loop_vertex in loop_vertices:
+                identical = None
+                for new_loop_vertex in new_loop_vertices:
+                    if loopVerticesEqual(loop_vertex, new_loop_vertex, has_tangents):
+                        identical = new_loop_vertex
+                        for pointer in loop_vertex.pointers:
+                            pointer.loop_vertex = new_loop_vertex
+                            new_loop_vertex.pointers.append(pointer)
+                        break
+                if identical is None:
+                    new_loop_vertices.add(loop_vertex)
+            loop_vertices.clear()
+            loop_vertices |= new_loop_vertices
+        
+        #Populate vertex list
+        i = 0
+        for loop_vertices in loop_vertex_sets:
+            for loop_vertex in loop_vertices:
+                loop_vertex.index = i
+                i += 1
+                self.vertices.append(loop_vertex)
+        
+        #Count groups
+        for vertex in self.vertices:
+            self.num_groups = max(self.num_groups, len(vertex.vert.groups))
 
 def exportMesh(file, mesh):
-    vertices, triangles, num_uv_layers, num_color_layers, num_groups = prepareMesh(mesh)
+    pmesh = ProcessedMesh(mesh)
     
-    print(num_color_layers)
+    writePaddedJavaUTF(file, mesh.name)
+    
+    #UV layer names
+    file.write(struct.pack('>i', pmesh.num_uv_layers))
+    for uv_layer in mesh.uv_layers:
+        writePaddedJavaUTF(file, uv_layer.name)
+    
+    #Color layer names
+    file.write(struct.pack('>i', pmesh.num_color_layers))
+    for color_layer in mesh.vertex_colors:
+        writePaddedJavaUTF(file, color_layer.name)
+        
+    #Group count
+    file.write(struct.pack('>i', pmesh.num_groups))
+        
+    #Vertex count
+    file.write(struct.pack('>i', len(pmesh.vertices)))
+    
+    #Positions
+    for vertex in pmesh.vertices:
+        file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.vert.co)))
+        
+    #Normals
+    for vertex in pmesh.vertices:
+        file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.loop.normal)))
+    
+    #Tangents
+    if pmesh.num_uv_layers > 0:
+        for vertex in pmesh.vertices:
+            file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.loop.tangent)))
+            
+    #UVs
+    for uv_layer_i in range(pmesh.num_uv_layers):
+        for vertex in pmesh.vertices:
+            file.write(struct.pack('>2f', *vertex.uv_loops[uv_layer_i].uv))
+
+    #Colors
+    for color_layer_i in range(pmesh.num_color_layers):
+        for vertex in pmesh.vertices:
+            file.write(struct.pack('>3f', *vertex.color_loops[color_layer_i].color))
+    
+    #Group indices
+    for vertex in pmesh.vertices:
+        groups_written = 0
+        for group in vertex.vert.groups:
+            file.write(struct.pack('>i', group.group))
+            groups_written += 1
+        while groups_written < pmesh.num_groups:
+            file.write(struct.pack('>i', -1))
+            groups_written += 1
+    
+    #Group weights
+    for vertex in pmesh.vertices:
+        groups_written = 0
+        for group in vertex.vert.groups:
+            file.write(struct.pack('>f', group.weight))
+            groups_written += 1
+        while groups_written < pmesh.num_groups:
+            file.write(struct.pack('>f', 0.0))
+            groups_written += 1
+            
+    #Triangles
+    file.write(struct.pack('>i', len(pmesh.triangles)))
+    for triangle in pmesh.triangles:
+        for pointer in triangle.loop_vertex_pointers:
+            file.write(struct.pack('>i', pointer.loop_vertex.index))
+
+######################
+###OBJECT EXPORTING###
+######################
+
+def exportMeshObject(file, obj):
+    writePaddedJavaUTF(file, obj.name)
+
+    #Mesh index
+    file.write(struct.pack('>i', obj.data.tag))
+    
+    #Scale
+    file.write(struct.pack('>3f', *vec3BlendToDevil(obj.scale)))
+    
+    #Rotation
+    file.write(struct.pack('>4f', *quatBlendToDevil(obj.rotation_quaternion)))
+    
+    #Position
+    file.write(struct.pack('>3f', *vec3BlendToDevil(obj.location)))
+    
+    #Vertex groups
+    file.write(struct.pack('>i', len(obj.vertex_groups)))
+    for group in obj.vertex_groups:
+        writePaddedJavaUTF(file, group.name)
+
+##########
+###MAIN###
+##########
 
 def tagIndex(idList):
     for i, id in enumerate(idList):
@@ -291,31 +271,44 @@ def export(filepath, use_tangents):
     os.system("cls")
     print("EXPORTING DVM...")
     
-    # Exit edit mode before exporting, so current object states are exported properly.
+    #Exit edit mode before exporting, so current object states are exported properly
     if bpy.ops.object.mode_set.poll():
         bpy.ops.object.mode_set(mode='OBJECT')
     
     #Export lists
     meshes = []
-    armatures = []
-    objects = []
+    meshObjects = []
     
     #Find valid exportable data blocks
+    for mesh in bpy.data.meshes:
+        if mesh.users > 0:
+            meshes.append(mesh)
+    
     for obj in bpy.data.objects:
         if isinstance(obj.data, bpy.types.Mesh):
-            meshes.append(obj.data)
-            objects.append(obj)
-        elif isinstance(obj.data, bpy.types.Armature):
-            armatures.append(obj.data)
-            objects.append(obj)
+            meshObjects.append(obj)
     
     #Set data block tags to array indices
     tagIndex(meshes)
-    tagIndex(armatures)
-    tagIndex(objects)
+    tagIndex(meshObjects)
     
-    for mesh in meshes:
-        exportMesh(None, mesh)
+    file = open(filepath, "wb")
+    try:
+        #Header
+        writeJavaUTF(file, "DevilModel 0.2")
+        
+        #Mesh blocks
+        file.write(struct.pack('>i', len(meshes)))
+        for mesh in meshes:
+            exportMesh(file, mesh)
+        
+        #Mesh object blocks
+        file.write(struct.pack('>i', len(meshObjects)))
+        for obj in meshObjects:
+            exportMeshObject(file, obj)
+        
+    finally:
+        file.close()
     
     print("DVM EXPORT SUCCESSFUL.")
     return {'FINISHED'}
