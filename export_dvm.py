@@ -267,7 +267,7 @@ def tagIndex(idList):
     for i, id in enumerate(idList):
         id.tag = i
 
-def export(filepath, use_tangents):
+def export(filepath):
     os.system("cls")
     print("EXPORTING DVM...")
     
