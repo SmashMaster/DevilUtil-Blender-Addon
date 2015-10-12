@@ -57,12 +57,6 @@ def loopVerticesEqual(lva, lvb, has_tangents):
         if a != b:
             return False
     
-    #Ensure tangents are equal
-    if has_tangents:
-        for a, b in zip(lva.loop.tangent, lvb.loop.tangent):
-            if a != b:
-                return False
-    
     #Ensure uvs are equal
     for loopA, loopB, in zip(lva.uv_loops, lvb.uv_loops):
         for a, b, in zip(loopA.uv, loopB.uv):
@@ -101,10 +95,7 @@ class ProcessedMesh:
         
         #Prepare mesh
         mesh.calc_tessface()
-        if has_tangents:
-            mesh.calc_tangents()
-        else:
-            mesh.calc_normals_split()
+        mesh.calc_normals_split()
         
         #Set up LoopVertex list
         loop_vertex_sets = [set() for i in range(len(mesh.vertices))]
@@ -194,11 +185,6 @@ def exportMesh(file, mesh):
     for vertex in pmesh.vertices:
         file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.loop.normal)))
     
-    #Tangents
-    if pmesh.num_uv_layers > 0:
-        for vertex in pmesh.vertices:
-            file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.loop.tangent)))
-            
     #UVs
     for uv_layer_i in range(pmesh.num_uv_layers):
         for vertex in pmesh.vertices:
@@ -295,7 +281,7 @@ def export(filepath):
     file = open(filepath, "wb")
     try:
         #Header
-        writeJavaUTF(file, "DevilModel 0.2")
+        writeJavaUTF(file, "DVM NO TAN 0.2")
         
         #Mesh blocks
         file.write(struct.pack('>i', len(meshes)))
