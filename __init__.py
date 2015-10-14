@@ -20,10 +20,16 @@ class DVMExporter(bpy.types.Operator, ExportHelper):
     filename_ext = ".dvm"
     filter_glob = StringProperty(default="*.dvm", options={'HIDDEN'})
     
+    use_tangents = BoolProperty(
+            name="Export Tangents",
+            description="Export vertex tangents for normal mapping",
+            default=False,
+            )
+    
     def execute(self, context):
         from . import export_dvm
         imp.reload(export_dvm)
-        return export_dvm.export(self.filepath)
+        return export_dvm.export(self.filepath, self.use_tangents)
 
 def menu_export(self, context):
     self.layout.operator(DVMExporter.bl_idname, text="DevilModel (.dvm)")

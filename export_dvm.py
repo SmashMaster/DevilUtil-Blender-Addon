@@ -12,7 +12,7 @@ def writeJavaUTF(file, string):
 def writePaddedJavaUTF(file, string):
     #Padded to multiples of 4 bytes
     bytes_written = writeJavaUTF(file, string)
-    padding = (4 - (bytes_written % 4)) % 4
+    padding = (4 - bytes_written) & 0b11
     file.write(struct.pack('>' + str(padding) + 'x'))
 
 def vec3BlendToDevil(vector):
@@ -21,9 +21,9 @@ def vec3BlendToDevil(vector):
 def quatBlendToDevil(quat):
     return [quat[0], quat[2], quat[3], quat[1]]
 
-####################
-###MESH EXPORITNG###
-####################
+######################
+### MESH EXPORITNG ###
+######################
 
 #Vertex container which holds vertices and their loops
 class LoopVertex:
@@ -56,6 +56,12 @@ def loopVerticesEqual(lva, lvb, has_tangents):
     for a, b in zip(lva.loop.normal, lvb.loop.normal):
         if a != b:
             return False
+            
+    #Ensure tangents are equal
+    if has_tangents:
+        for a, b in zip(lva.loop.tangent, lvb.loop.tangent):
+            if a != b:
+                return False
     
     #Ensure uvs are equal
     for loopA, loopB, in zip(lva.uv_loops, lvb.uv_loops):
@@ -83,19 +89,23 @@ def loopVerticesEqual(lva, lvb, has_tangents):
     return True
 
 class ProcessedMesh:
-    def __init__(self, mesh):
+    def __init__(self, mesh, use_tangents):
         #Set up fields
         self.num_uv_layers = len(mesh.uv_layers)
+        self.has_tangents = use_tangents and self.num_uv_layers > 0
         self.num_color_layers = len(mesh.vertex_colors)
         self.num_groups = 0
         self.triangles = []
         self.vertices = []
         
-        has_tangents = self.num_uv_layers > 0
-        
         #Prepare mesh
-        mesh.calc_tessface()
-        mesh.calc_normals_split()
+        if self.has_tangents:
+            try:
+                mesh.calc_tangents("Mr. Poopybutthole")
+            except:
+                self.has_tangents = False
+        else:
+            mesh.calc_normals_split()
         
         #Set up LoopVertex list
         loop_vertex_sets = [set() for i in range(len(mesh.vertices))]
@@ -133,7 +143,7 @@ class ProcessedMesh:
             for loop_vertex in loop_vertices:
                 identical = None
                 for new_loop_vertex in new_loop_vertices:
-                    if loopVerticesEqual(loop_vertex, new_loop_vertex, has_tangents):
+                    if loopVerticesEqual(loop_vertex, new_loop_vertex, self.has_tangents):
                         identical = new_loop_vertex
                         for pointer in loop_vertex.pointers:
                             pointer.loop_vertex = new_loop_vertex
@@ -156,8 +166,8 @@ class ProcessedMesh:
         for vertex in self.vertices:
             self.num_groups = max(self.num_groups, len(vertex.vert.groups))
 
-def exportMesh(file, mesh):
-    pmesh = ProcessedMesh(mesh)
+def exportMesh(file, mesh, use_tangents):
+    pmesh = ProcessedMesh(mesh, use_tangents)
     
     writePaddedJavaUTF(file, mesh.name)
     
@@ -171,6 +181,9 @@ def exportMesh(file, mesh):
     for color_layer in mesh.vertex_colors:
         writePaddedJavaUTF(file, color_layer.name)
         
+    #Tangents enabled
+    file.write(struct.pack('>i', pmesh.has_tangents))
+    
     #Group count
     file.write(struct.pack('>i', pmesh.num_groups))
         
@@ -184,6 +197,11 @@ def exportMesh(file, mesh):
     #Normals
     for vertex in pmesh.vertices:
         file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.loop.normal)))
+        
+    #Tangents
+    if pmesh.has_tangents:
+        for vertex in pmesh.vertices:
+            file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.loop.tangent)))
     
     #UVs
     for uv_layer_i in range(pmesh.num_uv_layers):
@@ -221,9 +239,9 @@ def exportMesh(file, mesh):
         for pointer in triangle.loop_vertex_pointers:
             file.write(struct.pack('>i', pointer.loop_vertex.index))
 
-######################
-###OBJECT EXPORTING###
-######################
+########################
+### OBJECT EXPORTING ###
+########################
 
 def exportMeshObject(file, obj):
     writePaddedJavaUTF(file, obj.name)
@@ -245,15 +263,30 @@ def exportMeshObject(file, obj):
     for group in obj.vertex_groups:
         writePaddedJavaUTF(file, group.name)
 
-##########
-###MAIN###
-##########
+def exportSunObject(file, obj):
+    writePaddedJavaUTF(file, obj.name)
+    
+    #Rotation
+    file.write(struct.pack('>4f', *quatBlendToDevil(obj.rotation_quaternion)))
+    
+    #Soft shadow size (why is this in meters and not radians/degrees?)
+    file.write(struct.pack('>1f', obj.data.shadow_soft_size))
+    
+    #Color
+    emission_node = obj.data.node_tree.nodes["Emission"]
+    r, g, b = emission_node.inputs[0].default_value[0:3]
+    strength = emission_node.inputs[1].default_value
+    file.write(struct.pack('>3f', r*strength, g*strength, b*strength))
+    
+############
+### MAIN ###
+############
 
 def tagIndex(idList):
     for i, id in enumerate(idList):
         id.tag = i
 
-def export(filepath):
+def export(filepath, use_tangents):
     os.system("cls")
     print("EXPORTING DVM...")
     
@@ -264,6 +297,8 @@ def export(filepath):
     #Export lists
     meshes = []
     meshObjects = []
+    sunObjects = []
+    world = bpy.context.scene.world
     
     #Find valid exportable data blocks
     for mesh in bpy.data.meshes:
@@ -273,7 +308,9 @@ def export(filepath):
     for obj in bpy.data.objects:
         if isinstance(obj.data, bpy.types.Mesh):
             meshObjects.append(obj)
-    
+        if isinstance(obj.data, bpy.types.SunLamp):
+            sunObjects.append(obj)
+            
     #Set data block tags to array indices
     tagIndex(meshes)
     tagIndex(meshObjects)
@@ -281,17 +318,34 @@ def export(filepath):
     file = open(filepath, "wb")
     try:
         #Header
-        writeJavaUTF(file, "DVM NO TAN 0.2")
+        writeJavaUTF(file, "DevilModel 0.3")
+        
+        #Background color
+        file.write(struct.pack('>3f', *world.horizon_color))
+        
+        #Count everything
+        numMeshes = len(meshes)
+        numMeshObjs = len(meshObjects)
+        numSuns = len(sunObjects)
+        
+        print("Meshes:         {}".format(numMeshes))
+        print("Mesh instances: {}".format(numMeshObjs))
+        print("Sun lamps:      {}".format(numSuns))
         
         #Mesh blocks
-        file.write(struct.pack('>i', len(meshes)))
+        file.write(struct.pack('>i', numMeshes))
         for mesh in meshes:
-            exportMesh(file, mesh)
+            exportMesh(file, mesh, use_tangents)
         
         #Mesh object blocks
-        file.write(struct.pack('>i', len(meshObjects)))
+        file.write(struct.pack('>i', numMeshObjs))
         for obj in meshObjects:
             exportMeshObject(file, obj)
+        
+        #Sun object blocks
+        file.write(struct.pack('>i', numSuns))
+        for obj in sunObjects:
+            exportSunObject(file, obj)
         
     finally:
         file.close()
