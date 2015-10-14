@@ -99,9 +99,10 @@ class ProcessedMesh:
         self.vertices = []
         
         #Prepare mesh
+        mesh.calc_tessface()
         if self.has_tangents:
             try:
-                mesh.calc_tangents("Mr. Poopybutthole")
+                mesh.calc_tangents()
             except:
                 self.has_tangents = False
         else:
