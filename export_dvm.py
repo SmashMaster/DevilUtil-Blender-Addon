@@ -276,7 +276,7 @@ def exportSunObject(file, obj):
     #Color
     emission_node = obj.data.node_tree.nodes["Emission"]
     r, g, b = emission_node.inputs[0].default_value[0:3]
-    strength = emission_node.inputs[1].default_value
+    strength = emission_node.inputs[1].default_value/3.1415926535898
     file.write(struct.pack('>3f', r*strength, g*strength, b*strength))
     
 ############
