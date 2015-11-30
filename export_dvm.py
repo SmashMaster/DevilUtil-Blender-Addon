@@ -21,6 +21,9 @@ def vec3BlendToDevil(vector):
 def quatBlendToDevil(quat):
     return [quat[0], quat[2], quat[3], quat[1]]
 
+def exportMaterial(file, material):
+    writePaddedJavaUTF(file, material.name)
+    
 ######################
 ### MESH EXPORITNG ###
 ######################
@@ -239,6 +242,10 @@ def exportMesh(file, mesh, use_tangents):
     for triangle in pmesh.triangles:
         for pointer in triangle.loop_vertex_pointers:
             file.write(struct.pack('>i', pointer.loop_vertex.index))
+            
+    #Material indices
+    for triangle in pmesh.triangles:
+        file.write(struct.pack('>i', triangle.poly.material_index))
 
 ########################
 ### OBJECT EXPORTING ###
@@ -319,19 +326,26 @@ def export(filepath, use_tangents):
     file = open(filepath, "wb")
     try:
         #Header
-        writeJavaUTF(file, "DevilModel 0.3")
+        writeJavaUTF(file, "DevilModel 0.4")
         
         #Background color
         file.write(struct.pack('>3f', *world.horizon_color))
         
         #Count everything
+        numMaterials = len(bpy.data.materials)
         numMeshes = len(meshes)
         numMeshObjs = len(meshObjects)
         numSuns = len(sunObjects)
         
+        print("Materials:      {}".format(numMaterials))
         print("Meshes:         {}".format(numMeshes))
         print("Mesh instances: {}".format(numMeshObjs))
         print("Sun lamps:      {}".format(numSuns))
+        
+        #Material blocks
+        file.write(struct.pack('>i', numMaterials))
+        for material in bpy.data.materials:
+            exportMaterial(file, material)
         
         #Mesh blocks
         file.write(struct.pack('>i', numMeshes))
