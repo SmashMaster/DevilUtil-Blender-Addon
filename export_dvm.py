@@ -1,34 +1,96 @@
 import bpy
-import struct
 import os
+import struct
 
-def writeJavaUTF(file, string):
-    utf8 = string.encode('utf_8')
-    strlen = len(utf8)
-    file.write(struct.pack('>h', strlen))
-    file.write(struct.pack('>' + str(strlen) + 's', utf8))
-    return strlen + 2
+class DataFile:
+    def __init__(self, filepath):
+        self.filepath = filepath
+        self.file = None
+        self.block_offsets = []
+        self.block_sizes = []
+        
+    def __enter__(self):
+        self.file = open(self.filepath, "r+b")
+        self.file.truncate()
+        return self
+        
+    def __exit__(self, type, value, traceback):
+        self.file.close()
+        
+    def write(self, bytes):
+        self.file.write(bytes)
+        if len(self.block_sizes) > 0:
+            self.block_sizes[-1] += len(bytes)
+            
+    def write_padding(self, num_bytes):
+        self.write(b'\0'*num_bytes)
+        
+    def write_struct(self, fmt, *values):
+        self.write(struct.pack(fmt, *values))
+        
+    def write_utf(self, string):
+        utf8 = string.encode('utf_8')
+        self.write_struct('>h', len(utf8))
+        self.write(utf8)
 
-def writePaddedJavaUTF(file, string):
-    #Padded to multiples of 4 bytes
-    bytes_written = writeJavaUTF(file, string)
-    padding = (4 - bytes_written) & 0b11
-    file.write(struct.pack('>' + str(padding) + 'x'))
+    def write_padded_utf(self, string):
+        utf8 = string.encode('utf_8')
+        utflen = len(utf8)
+        self.write_struct('>h', utflen)
+        self.write(utf8)
+        self.write_padding((2 - utflen) & 0b11)
+        
+    def write_vec3(self, v):
+        self.write_struct('>3f', v[1], v[2], v[0])
+        
+    def write_mat3(self, m):
+        self.write_struct('>9f', m[1][1], m[1][2], m[1][0],
+                                 m[2][1], m[2][2], m[2][0],
+                                 m[0][1], m[0][2], m[0][0])
+        
+    def write_rot(self, r): #Works for quaternions and axis-angle
+        self.write_struct('>4f', r[0], r[2], r[3], r[1])
+        
+    def begin_block(self):
+        offset = self.file.tell()
+        self.write_padding(4)
+        self.block_offsets.append(offset)
+        self.block_sizes.append(0)
+        
+    def end_block(self):
+        offset = self.file.tell()
+        self.file.seek(self.block_offsets.pop())
+        size = self.block_sizes.pop()
+        self.file.write(struct.pack('>i', size))
+        self.file.seek(offset)
+        if len(self.block_sizes) > 0:
+            self.block_sizes[-1] += size
+        
+    def close(self):
+        self.file.close()
 
-def vec3BlendToDevil(vector):
-    return [vector[1], vector[2], vector[0]]
+def write_fcurve(file, fcurve):
+    pass
     
-def quatBlendToDevil(quat):
-    return [quat[0], quat[2], quat[3], quat[1]]
+def write_action(file, action):
+    write_padded_utf(file, action.name)
+    write_struct(file, '>i', len(action.fcurves))
+    for fcurve in action.fcurves:
+        write_fcurve(file, fcurve)
 
-def exportMaterial(file, material):
-    writePaddedJavaUTF(file, material.name)
-    
+def write_armature(file, armature):
+    write_padded_utf(file, armature.name)
+
+def write_lamp(file, lamp):
+    write_padded_utf(file, lamp.name)
+
+def write_material(file, material):
+    write_padded_utf(file, material.name)
+
 ######################
 ### MESH EXPORITNG ###
 ######################
 
-#Vertex container which holds vertices and their loops
 class LoopVertex:
     def __init__(self, mesh, poly, loop):
         self.index = -1
@@ -43,14 +105,13 @@ class Triangle:
     def __init__(self, indices):
         self.indices = indices
         self.loop_vertex_pointers = []
-        
-#Mutable LoopVertex wrapper to make dissolving vertices easy
+
 class LoopVertexPointer:
     def __init__(self, loop_vertex):
         self.loop_vertex = loop_vertex
         loop_vertex.pointers.append(self)
         
-def loopVerticesEqual(lva, lvb, has_tangents):
+def loop_vertices_equal(lva, lvb, has_tangents):
     #Ensure indices are equal
     if lva.loop.vertex_index != lvb.loop.vertex_index:
         return False
@@ -147,7 +208,7 @@ class ProcessedMesh:
             for loop_vertex in loop_vertices:
                 identical = None
                 for new_loop_vertex in new_loop_vertices:
-                    if loopVerticesEqual(loop_vertex, new_loop_vertex, self.has_tangents):
+                    if loop_vertices_equal(loop_vertex, new_loop_vertex, self.has_tangents):
                         identical = new_loop_vertex
                         for pointer in loop_vertex.pointers:
                             pointer.loop_vertex = new_loop_vertex
@@ -170,200 +231,191 @@ class ProcessedMesh:
         for vertex in self.vertices:
             self.num_groups = max(self.num_groups, len(vertex.vert.groups))
 
-def exportMesh(file, mesh, use_tangents):
-    pmesh = ProcessedMesh(mesh, use_tangents)
+def write_mesh(file, mesh):
+    pmesh = ProcessedMesh(mesh, False)
     
-    writePaddedJavaUTF(file, mesh.name)
+    #Name
+    write_padded_utf(file, mesh.name)
     
     #UV layer names
-    file.write(struct.pack('>i', pmesh.num_uv_layers))
+    write_struct(file, '>i', pmesh.num_uv_layers)
     for uv_layer in mesh.uv_layers:
-        writePaddedJavaUTF(file, uv_layer.name)
+        write_padded_utf(file, uv_layer.name)
     
     #Color layer names
-    file.write(struct.pack('>i', pmesh.num_color_layers))
+    write_struct(file, '>i', pmesh.num_color_layers)
     for color_layer in mesh.vertex_colors:
-        writePaddedJavaUTF(file, color_layer.name)
+        write_padded_utf(file, color_layer.name)
         
     #Tangents enabled
-    file.write(struct.pack('>i', pmesh.has_tangents))
+    write_struct(file, '>i', pmesh.has_tangents)
     
     #Group count
-    file.write(struct.pack('>i', pmesh.num_groups))
+    write_struct(file, '>i', pmesh.num_groups)
         
     #Vertex count
-    file.write(struct.pack('>i', len(pmesh.vertices)))
+    write_struct(file, '>i', len(pmesh.vertices))
     
     #Positions
     for vertex in pmesh.vertices:
-        file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.vert.co)))
+        write_vec3(file, vertex.vert.co)
         
     #Normals
     for vertex in pmesh.vertices:
-        file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.loop.normal)))
+        write_vec3(file, vertex.loop.normal)
         
     #Tangents
     if pmesh.has_tangents:
         for vertex in pmesh.vertices:
-            file.write(struct.pack('>3f', *vec3BlendToDevil(vertex.loop.tangent)))
+            write_vec3(file, '>3f', vertex.loop.tangent)
     
     #UVs
     for uv_layer_i in range(pmesh.num_uv_layers):
         for vertex in pmesh.vertices:
-            file.write(struct.pack('>2f', *vertex.uv_loops[uv_layer_i].uv))
+            write_struct(file, '>2f', *vertex.uv_loops[uv_layer_i].uv)
 
     #Colors
     for color_layer_i in range(pmesh.num_color_layers):
         for vertex in pmesh.vertices:
-            file.write(struct.pack('>3f', *vertex.color_loops[color_layer_i].color))
+            write_struct(file, '>3f', *vertex.color_loops[color_layer_i].color)
     
     #Group indices
     for vertex in pmesh.vertices:
         groups_written = 0
         for group in vertex.vert.groups:
-            file.write(struct.pack('>i', group.group))
+            write_struct(file, '>i', group.group)
             groups_written += 1
         while groups_written < pmesh.num_groups:
-            file.write(struct.pack('>i', -1))
+            write_struct(file, '>i', -1)
             groups_written += 1
     
     #Group weights
     for vertex in pmesh.vertices:
         groups_written = 0
         for group in vertex.vert.groups:
-            file.write(struct.pack('>f', group.weight))
+            write_struct(file, '>f', group.weight)
             groups_written += 1
         while groups_written < pmesh.num_groups:
-            file.write(struct.pack('>f', 0.0))
+            write_struct(file, '>f', 0.0)
             groups_written += 1
             
     #Triangles
     file.write(struct.pack('>i', len(pmesh.triangles)))
     for triangle in pmesh.triangles:
         for pointer in triangle.loop_vertex_pointers:
-            file.write(struct.pack('>i', pointer.loop_vertex.index))
+            write_struct(file, '>i', pointer.loop_vertex.index)
             
     #Material indices
     for triangle in pmesh.triangles:
-        file.write(struct.pack('>i', triangle.poly.material_index))
+        write_struct(file, '>i', triangle.poly.material_index)
 
 ########################
 ### OBJECT EXPORTING ###
 ########################
 
-def exportMeshObject(file, obj):
-    writePaddedJavaUTF(file, obj.name)
+DATA_TYPE_IDS = {
+    bpy.types.Action: 0,
+    bpy.types.Armature: 1,
+    bpy.types.Lamp: 2,
+    bpy.types.Material: 3,
+    bpy.types.Mesh: 4
+}
 
-    #Mesh index
-    file.write(struct.pack('>i', obj.data.tag))
+def write_vertex_group(file, vertex_group):
+    write_padded_utf(file, vertex_group.name)
+
+def write_object(file, index_map, object):
+    data_type = type(object.data)
+    rot_mode = object.rotation_mode
+    
+    #Name
+    write_padded_utf(file, object.name)
+    
+    #Data type and ID
+    if data_type in DATA_TYPE_IDS:
+        write_struct(file, '>i', DATA_TYPE_IDS[data_type])
+        write_struct(file, '>i', index_map[object.data.name])
+    else:
+        write_struct(file, '>i', -1)
+    
+    #Location
+    write_vec3(file, object.location)
+    
+    #Rotation type and value
+    if rot_mode == 'QUATERNION':
+        write_struct(file, '>i', 0)
+        write_rot(file, object.rotation_quaternion)
+    elif rot_mode == 'AXIS_ANGLE':
+        write_struct(file, '>i', 1)
+        write_rot(file, object.rotation_axis_angle)
+    else:
+        write_struct(file, '>i', -1)
     
     #Scale
-    file.write(struct.pack('>3f', *vec3BlendToDevil(obj.scale)))
-    
-    #Rotation
-    file.write(struct.pack('>4f', *quatBlendToDevil(obj.rotation_quaternion)))
-    
-    #Position
-    file.write(struct.pack('>3f', *vec3BlendToDevil(obj.location)))
+    write_vec3(file, object.scale)
     
     #Vertex groups
-    file.write(struct.pack('>i', len(obj.vertex_groups)))
-    for group in obj.vertex_groups:
-        writePaddedJavaUTF(file, group.name)
+    write_struct(file, '>i', len(object.vertex_groups))
+    for vertex_group in object.vertex_groups:
+        write_vertex_group(file, vertex_group)
 
-def exportSunObject(file, obj):
-    writePaddedJavaUTF(file, obj.name)
+def write_scene(file, index_map, scene):
+    #Name
+    write_padded_utf(file, scene.name)
     
-    #Rotation
-    file.write(struct.pack('>4f', *quatBlendToDevil(obj.rotation_quaternion)))
+    #Background color
+    write_struct(file, '>3f', *scene.world.horizon_color)
     
-    #Soft shadow size (why is this in meters and not radians/degrees?)
-    file.write(struct.pack('>1f', obj.data.shadow_soft_size))
-    
-    #Color
-    emission_node = obj.data.node_tree.nodes["Emission"]
-    r, g, b = emission_node.inputs[0].default_value[0:3]
-    strength = emission_node.inputs[1].default_value/3.1415926535898
-    file.write(struct.pack('>3f', r*strength, g*strength, b*strength))
-    
+    #Object IDs
+    write_struct(file, '>i', len(scene.objects))
+    for object in scene.objects:
+        write_struct(file, '>i', index_map[object.name])
+
 ############
 ### MAIN ###
 ############
 
-def tagIndex(idList):
-    for i, id in enumerate(idList):
-        id.tag = i
+def map_indices(index_map, *lists):
+    for list in lists:
+        for i, id in enumerate(list):
+            index_map[id.name] = i
 
-def export(filepath, use_tangents):
-    os.system("cls")
-    print("EXPORTING DVM...")
+def export(filepath):
+    print('Exporting DVM...')
     
     #Exit edit mode before exporting, so current object states are exported properly
     if bpy.ops.object.mode_set.poll():
         bpy.ops.object.mode_set(mode='OBJECT')
     
-    #Export lists
-    meshes = []
-    meshObjects = []
-    sunObjects = []
-    world = bpy.context.scene.world
+    index_map = {}
+    map_indices(index_map, bpy.data.actions, bpy.data.armatures, bpy.data.lamps,
+                           bpy.data.materials, bpy.data.meshes, bpy.data.objects)
     
-    #Find valid exportable data blocks
-    for mesh in bpy.data.meshes:
-        if mesh.users > 0:
-            meshes.append(mesh)
+    with DataFile(filepath) as file:
+        file.write(b'\x9F\x0ADevilModel')
+        file.write_struct('>2h', 0, 5) #Major/minor version
+        
+        #write_struct(file, '>i', len(bpy.data.actions)) #Actions
+        #for action in bpy.data.actions:
+        #    write_action(file, action)
+        #write_struct(file, '>i', len(bpy.data.armatures)) #Armatures
+        #for armature in bpy.data.armatures:
+        #    write_armature(file, armature)
+        #write_struct(file, '>i', len(bpy.data.lamps)) #Lamps
+        #for lamp in bpy.data.lamps:
+        #    write_lamp(file, lamp)
+        #write_struct(file, '>i', len(bpy.data.materials)) #Materials
+        #for material in bpy.data.materials:
+        #    write_material(file, material)
+        #write_struct(file, '>i', len(bpy.data.meshes)) #Meshes
+        #for mesh in bpy.data.meshes:
+        #    write_mesh(file, mesh)
+        #write_struct(file, '>i', len(bpy.data.objects)) #Objects
+        #for object in bpy.data.objects:
+        #    write_object(file, index_map, object)
+        #write_struct(file, '>i', len(bpy.data.scenes)) #Scenes
+        #for scene in bpy.data.scenes:
+        #    write_scene(file, index_map, scene)
     
-    for obj in bpy.data.objects:
-        if isinstance(obj.data, bpy.types.Mesh):
-            meshObjects.append(obj)
-        if isinstance(obj.data, bpy.types.SunLamp):
-            sunObjects.append(obj)
-            
-    #Set data block tags to array indices
-    tagIndex(meshes)
-    tagIndex(meshObjects)
-    
-    file = open(filepath, "wb")
-    try:
-        #Header
-        writeJavaUTF(file, "DevilModel 0.4")
-        
-        #Background color
-        file.write(struct.pack('>3f', *world.horizon_color))
-        
-        #Count everything
-        numMaterials = len(bpy.data.materials)
-        numMeshes = len(meshes)
-        numMeshObjs = len(meshObjects)
-        numSuns = len(sunObjects)
-        
-        print("Materials:      {}".format(numMaterials))
-        print("Meshes:         {}".format(numMeshes))
-        print("Mesh instances: {}".format(numMeshObjs))
-        print("Sun lamps:      {}".format(numSuns))
-        
-        #Material blocks
-        file.write(struct.pack('>i', numMaterials))
-        for material in bpy.data.materials:
-            exportMaterial(file, material)
-        
-        #Mesh blocks
-        file.write(struct.pack('>i', numMeshes))
-        for mesh in meshes:
-            exportMesh(file, mesh, use_tangents)
-        
-        #Mesh object blocks
-        file.write(struct.pack('>i', numMeshObjs))
-        for obj in meshObjects:
-            exportMeshObject(file, obj)
-        
-        #Sun object blocks
-        file.write(struct.pack('>i', numSuns))
-        for obj in sunObjects:
-            exportSunObject(file, obj)
-        
-    finally:
-        file.close()
-    
-    print("DVM EXPORT SUCCESSFUL.")
+    print('DVM successfully exported.')
     return {'FINISHED'}
