@@ -10,12 +10,13 @@ class DataFile:
         self.block_sizes = []
         
     def __enter__(self):
-        self.file = open(self.filepath, "r+b")
+        self.file = open(self.filepath, 'w+b')
         self.file.truncate()
         return self
         
     def __exit__(self, type, value, traceback):
         self.file.close()
+        self.file = None
         
     def write(self, bytes):
         self.file.write(bytes)
@@ -69,23 +70,58 @@ class DataFile:
     def close(self):
         self.file.close()
 
+FCURVE_INTERPOLATION_IDS = {
+    'CONSTANT': 0,
+    'LINEAR': 1,
+    'BEZIER': 2
+}
+
+def write_keyframe(file, keyframe):
+    file.write_struct('>i', FCURVE_INTERPOLATION_IDS[keyframe.interpolation])
+    file.write_struct('>2f', *keyframe.co)
+    file.write_struct('>2f', *keyframe.handle_left)
+    file.write_struct('>2f', *keyframe.handle_right)
+
+FCURVE_PROPERTY_TYPE_IDS = {
+    'location': 1,
+    'rotation_quaternion': 2,
+    'rotation_axis_angle': 3,
+    'scale': 4
+}
+
 def write_fcurve(file, fcurve):
-    pass
+    fcurve.update()
+
+    if fcurve.data_path.startswith('pose.bones[\"'):
+        bone_name_end_index = fcurve.data_path.index('\"].')
+        bone_name = fcurve.data_path[12:bone_name_end_index]
+        property_name = fcurve.data_path[bone_name_end_index + 3:]
+        
+        file.write_struct('>h', 1)
+        file.write_struct('>h', FCURVE_PROPERTY_TYPE_IDS[property_name])
+        file.write_padded_utf(bone_name)
+    else:
+        file.write_struct('>h', 0)
+        file.write_struct('>h', FCURVE_PROPERTY_TYPE_IDS[fcurve.data_path])
     
+    file.write_struct('>i', len(fcurve.keyframe_points))
+    for keyframe in fcurve.keyframe_points:
+        write_keyframe(file, keyframe)
+
 def write_action(file, action):
-    write_padded_utf(file, action.name)
-    write_struct(file, '>i', len(action.fcurves))
+    file.write_padded_utf(action.name)
+    file.write_struct('>i', len(action.fcurves))
     for fcurve in action.fcurves:
         write_fcurve(file, fcurve)
 
 def write_armature(file, armature):
-    write_padded_utf(file, armature.name)
+    file.write_padded_utf(armature.name)
 
 def write_lamp(file, lamp):
-    write_padded_utf(file, lamp.name)
+    file.write_padded_utf(lamp.name)
 
 def write_material(file, material):
-    write_padded_utf(file, material.name)
+    file.write_padded_utf(material.name)
 
 ######################
 ### MESH EXPORITNG ###
@@ -234,80 +270,63 @@ class ProcessedMesh:
 def write_mesh(file, mesh):
     pmesh = ProcessedMesh(mesh, False)
     
-    #Name
-    write_padded_utf(file, mesh.name)
+    file.write_padded_utf(mesh.name)
     
-    #UV layer names
-    write_struct(file, '>i', pmesh.num_uv_layers)
+    file.write_struct('>i', pmesh.num_uv_layers)
     for uv_layer in mesh.uv_layers:
-        write_padded_utf(file, uv_layer.name)
-    
-    #Color layer names
-    write_struct(file, '>i', pmesh.num_color_layers)
+        file.write_padded_utf(uv_layer.name)
+        
+    file.write_struct('>i', pmesh.num_color_layers)
     for color_layer in mesh.vertex_colors:
-        write_padded_utf(file, color_layer.name)
+        file.write_padded_utf(color_layer.name)
         
-    #Tangents enabled
-    write_struct(file, '>i', pmesh.has_tangents)
+    file.write_struct('>i', pmesh.has_tangents)
+    file.write_struct('>i', pmesh.num_groups)
+    file.write_struct('>i', len(pmesh.vertices))
     
-    #Group count
-    write_struct(file, '>i', pmesh.num_groups)
-        
-    #Vertex count
-    write_struct(file, '>i', len(pmesh.vertices))
+    for vertex in pmesh.vertices:
+        file.write_vec3(vertex.vert.co)
     
-    #Positions
     for vertex in pmesh.vertices:
-        write_vec3(file, vertex.vert.co)
-        
-    #Normals
-    for vertex in pmesh.vertices:
-        write_vec3(file, vertex.loop.normal)
-        
-    #Tangents
+        file.write_vec3(vertex.loop.normal)
+    
     if pmesh.has_tangents:
         for vertex in pmesh.vertices:
-            write_vec3(file, '>3f', vertex.loop.tangent)
+            file.write_vec3(vertex.loop.tangent)
     
-    #UVs
     for uv_layer_i in range(pmesh.num_uv_layers):
         for vertex in pmesh.vertices:
-            write_struct(file, '>2f', *vertex.uv_loops[uv_layer_i].uv)
+            file.write_struct('>2f', *vertex.uv_loops[uv_layer_i].uv)
 
-    #Colors
     for color_layer_i in range(pmesh.num_color_layers):
         for vertex in pmesh.vertices:
-            write_struct(file, '>3f', *vertex.color_loops[color_layer_i].color)
+            file.write_struct('>3f', *vertex.color_loops[color_layer_i].color)
     
-    #Group indices
     for vertex in pmesh.vertices:
         groups_written = 0
         for group in vertex.vert.groups:
-            write_struct(file, '>i', group.group)
+            file.write_struct('>i', group.group)
             groups_written += 1
         while groups_written < pmesh.num_groups:
-            write_struct(file, '>i', -1)
+            file.write_struct('>i', -1)
             groups_written += 1
     
-    #Group weights
     for vertex in pmesh.vertices:
         groups_written = 0
         for group in vertex.vert.groups:
-            write_struct(file, '>f', group.weight)
+            file.write_struct('>f', group.weight)
             groups_written += 1
         while groups_written < pmesh.num_groups:
-            write_struct(file, '>f', 0.0)
+            file.write_struct('>f', 0.0)
             groups_written += 1
-            
-    #Triangles
+    
     file.write(struct.pack('>i', len(pmesh.triangles)))
     for triangle in pmesh.triangles:
         for pointer in triangle.loop_vertex_pointers:
-            write_struct(file, '>i', pointer.loop_vertex.index)
-            
-    #Material indices
+            file.write_struct('>i', pointer.loop_vertex.index)
+    
     for triangle in pmesh.triangles:
-        write_struct(file, '>i', triangle.poly.material_index)
+        file.write_struct('>i', triangle.poly.material_index)
 
 ########################
 ### OBJECT EXPORTING ###
@@ -322,54 +341,48 @@ DATA_TYPE_IDS = {
 }
 
 def write_vertex_group(file, vertex_group):
-    write_padded_utf(file, vertex_group.name)
+    file.write_padded_utf(vertex_group.name)
 
-def write_object(file, index_map, object):
+def write_object(file, object, index_map):
     data_type = type(object.data)
     rot_mode = object.rotation_mode
     
-    #Name
-    write_padded_utf(file, object.name)
+    file.write_padded_utf(object.name)
     
-    #Data type and ID
     if data_type in DATA_TYPE_IDS:
-        write_struct(file, '>i', DATA_TYPE_IDS[data_type])
-        write_struct(file, '>i', index_map[object.data.name])
+        file.write_struct('>i', DATA_TYPE_IDS[data_type])
+        file.write_struct('>i', index_map[object.data.name])
     else:
-        write_struct(file, '>i', -1)
+        file.write_struct('>i', -1)
     
-    #Location
-    write_vec3(file, object.location)
+    file.write_vec3(object.location)
     
-    #Rotation type and value
     if rot_mode == 'QUATERNION':
-        write_struct(file, '>i', 0)
-        write_rot(file, object.rotation_quaternion)
+        file.write_struct('>i', 0)
+        file.write_rot(object.rotation_quaternion)
     elif rot_mode == 'AXIS_ANGLE':
-        write_struct(file, '>i', 1)
-        write_rot(file, object.rotation_axis_angle)
+        file.write_struct('>i', 1)
+        file.write_rot(object.rotation_axis_angle)
     else:
-        write_struct(file, '>i', -1)
+        file.write_struct('>i', -1)
     
-    #Scale
-    write_vec3(file, object.scale)
+    file.write_vec3(object.scale)
     
-    #Vertex groups
-    write_struct(file, '>i', len(object.vertex_groups))
+    file.write_struct('>i', len(object.vertex_groups))
     for vertex_group in object.vertex_groups:
         write_vertex_group(file, vertex_group)
+    
+    if object.animation_data is not None:
+        file.write_struct('>i', index_map[object.animation_data.action.name])
+    else:
+        file.write_struct('>i', -1)
 
-def write_scene(file, index_map, scene):
-    #Name
-    write_padded_utf(file, scene.name)
-    
-    #Background color
-    write_struct(file, '>3f', *scene.world.horizon_color)
-    
-    #Object IDs
-    write_struct(file, '>i', len(scene.objects))
+def write_scene(file, scene, index_map):
+    file.write_padded_utf(scene.name)
+    file.write_struct('>3f', *scene.world.horizon_color)
+    file.write_struct('>i', len(scene.objects))
     for object in scene.objects:
-        write_struct(file, '>i', index_map[object.name])
+        file.write_struct('>i', index_map[object.name])
 
 ############
 ### MAIN ###
@@ -380,10 +393,17 @@ def map_indices(index_map, *lists):
         for i, id in enumerate(list):
             index_map[id.name] = i
 
+def write_list_as_block(file, magic_number, list, write_func, *args):
+    file.write_struct('>i', magic_number)
+    file.begin_block()
+    file.write_struct('>i', len(list))
+    for element in list:
+        write_func(file, element, *args)
+    file.end_block()
+            
 def export(filepath):
     print('Exporting DVM...')
     
-    #Exit edit mode before exporting, so current object states are exported properly
     if bpy.ops.object.mode_set.poll():
         bpy.ops.object.mode_set(mode='OBJECT')
     
@@ -394,28 +414,13 @@ def export(filepath):
     with DataFile(filepath) as file:
         file.write(b'\x9F\x0ADevilModel')
         file.write_struct('>2h', 0, 5) #Major/minor version
-        
-        #write_struct(file, '>i', len(bpy.data.actions)) #Actions
-        #for action in bpy.data.actions:
-        #    write_action(file, action)
-        #write_struct(file, '>i', len(bpy.data.armatures)) #Armatures
-        #for armature in bpy.data.armatures:
-        #    write_armature(file, armature)
-        #write_struct(file, '>i', len(bpy.data.lamps)) #Lamps
-        #for lamp in bpy.data.lamps:
-        #    write_lamp(file, lamp)
-        #write_struct(file, '>i', len(bpy.data.materials)) #Materials
-        #for material in bpy.data.materials:
-        #    write_material(file, material)
-        #write_struct(file, '>i', len(bpy.data.meshes)) #Meshes
-        #for mesh in bpy.data.meshes:
-        #    write_mesh(file, mesh)
-        #write_struct(file, '>i', len(bpy.data.objects)) #Objects
-        #for object in bpy.data.objects:
-        #    write_object(file, index_map, object)
-        #write_struct(file, '>i', len(bpy.data.scenes)) #Scenes
-        #for scene in bpy.data.scenes:
-        #    write_scene(file, index_map, scene)
+        write_list_as_block(file, 32, bpy.data.actions, write_action)
+        write_list_as_block(file, 33, bpy.data.armatures, write_armature)
+        write_list_as_block(file, 34, bpy.data.lamps, write_lamp)
+        write_list_as_block(file, 35, bpy.data.materials, write_material)
+        write_list_as_block(file, 36, bpy.data.meshes, write_mesh)
+        write_list_as_block(file, 37, bpy.data.objects, write_object, index_map)
+        write_list_as_block(file, 38, bpy.data.scenes, write_scene, index_map)
     
     print('DVM successfully exported.')
     return {'FINISHED'}
