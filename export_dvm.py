@@ -83,26 +83,40 @@ def write_keyframe(file, keyframe):
     file.write_struct('>2f', *keyframe.handle_right)
 
 FCURVE_PROPERTY_TYPE_IDS = {
-    'location': 1,
-    'rotation_quaternion': 2,
-    'rotation_axis_angle': 3,
-    'scale': 4
+    'location': 0,
+    'rotation_quaternion': 1,
+    'rotation_axis_angle': 2,
+    'scale': 3
 }
+
+FCURVE_ARRAY_INDEX_MAP = [
+    [2, 0, 1],
+    [0, 3, 1, 2],
+    [0, 3, 1, 2],
+    [2, 0, 1]
+]
 
 def write_fcurve(file, fcurve):
     fcurve.update()
+    
+    property_id = None
 
     if fcurve.data_path.startswith('pose.bones[\"'):
         bone_name_end_index = fcurve.data_path.index('\"].')
         bone_name = fcurve.data_path[12:bone_name_end_index]
         property_name = fcurve.data_path[bone_name_end_index + 3:]
+        property_id = FCURVE_PROPERTY_TYPE_IDS[property_name]
         
         file.write_struct('>h', 1)
-        file.write_struct('>h', FCURVE_PROPERTY_TYPE_IDS[property_name])
+        file.write_struct('>h', property_id)
         file.write_padded_utf(bone_name)
     else:
+        property_id = FCURVE_PROPERTY_TYPE_IDS[fcurve.data_path]
+    
         file.write_struct('>h', 0)
-        file.write_struct('>h', FCURVE_PROPERTY_TYPE_IDS[fcurve.data_path])
+        file.write_struct('>h', property_id)
+    
+    file.write_struct('>i', FCURVE_ARRAY_INDEX_MAP[property_id][fcurve.array_index])
     
     file.write_struct('>i', len(fcurve.keyframe_points))
     for keyframe in fcurve.keyframe_points:
