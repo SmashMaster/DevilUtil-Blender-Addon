@@ -365,7 +365,7 @@ def write_object(file, object, index_map):
     
     if data_type in DATA_TYPE_IDS:
         file.write_struct('>i', DATA_TYPE_IDS[data_type])
-        file.write_struct('>i', index_map[object.data.name])
+        file.write_struct('>i', index_map[object.data])
     else:
         file.write_struct('>i', -1)
     
@@ -387,7 +387,7 @@ def write_object(file, object, index_map):
         write_vertex_group(file, vertex_group)
     
     if object.animation_data is not None:
-        file.write_struct('>i', index_map[object.animation_data.action.name])
+        file.write_struct('>i', index_map[object.animation_data.action])
     else:
         file.write_struct('>i', -1)
 
@@ -396,7 +396,7 @@ def write_scene(file, scene, index_map):
     file.write_struct('>3f', *scene.world.horizon_color)
     file.write_struct('>i', len(scene.objects))
     for object in scene.objects:
-        file.write_struct('>i', index_map[object.name])
+        file.write_struct('>i', index_map[object])
 
 ############
 ### MAIN ###
@@ -405,7 +405,7 @@ def write_scene(file, scene, index_map):
 def map_indices(index_map, *lists):
     for list in lists:
         for i, id in enumerate(list):
-            index_map[id.name] = i
+            index_map[id] = i
 
 def write_list_as_block(file, magic_number, list, write_func, *args):
     file.write_struct('>i', magic_number)
@@ -427,7 +427,7 @@ def export(filepath):
     
     with DataFile(filepath) as file:
         file.write(b'\x9F\x0ADevilModel')
-        file.write_struct('>2h', 0, 5) #Major/minor version
+        file.write_struct('>2h', 0, 6) #Major/minor version
         write_list_as_block(file, 32, bpy.data.actions, write_action)
         write_list_as_block(file, 33, bpy.data.armatures, write_armature)
         write_list_as_block(file, 34, bpy.data.lamps, write_lamp)
