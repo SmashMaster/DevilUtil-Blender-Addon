@@ -143,14 +143,15 @@ def write_action(file, action):
 def write_bone(file, bone):
     file.write_padded_utf(bone.name)
     file.write_struct('>i', bone.parent.dvm_bone_index if bone.parent is not None else -1)
-    file.write_vec3(bone.head)
-    file.write_vec3(bone.tail)
-    file.write_mat3(bone.matrix)
+    file.write_vec3(bone.head_local)
+    file.write_vec3(bone.tail_local)
+    file.write_mat3(bone.matrix_local)
         
 def write_armature(file, armature):
-    file.write_padded_utf(armature.name)
     for bone_index, bone in enumerate(armature.bones):
         bone.dvm_bone_index = bone_index
+
+    file.write_padded_utf(armature.name)
     file.write_list(armature.bones, write_bone)
     
 def write_lamp(file, lamp):
