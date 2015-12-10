@@ -40,7 +40,12 @@ class DataFile:
         self.write_struct('>h', utflen)
         self.write(utf8)
         self.write_padding((2 - utflen) & 0b11)
-        
+    
+    def write_list(self, list, write_func, *args):
+        self.write_struct('>i', len(list))
+        for element in list:
+            write_func(self, element, *args)
+    
     def write_vec3(self, v):
         self.write_struct('>3f', v[1], v[2], v[0])
         
@@ -51,6 +56,18 @@ class DataFile:
         
     def write_rot(self, r): #Works for quaternions and axis-angle
         self.write_struct('>4f', r[0], r[2], r[3], r[1])
+        
+    def write_transform(self, object):
+        self.write_vec3(object.location)
+        if object.rotation_mode == 'QUATERNION':
+            self.write_struct('>i', 0)
+            self.write_rot(object.rotation_quaternion)
+        elif object.rotation_mode == 'AXIS_ANGLE':
+            self.write_struct('>i', 1)
+            self.write_rot(object.rotation_axis_angle)
+        else:
+            self.write_struct('>i', -1)
+        self.write_vec3(object.scale)
         
     def begin_block(self):
         offset = self.file.tell()
@@ -117,20 +134,25 @@ def write_fcurve(file, fcurve):
         file.write_struct('>h', property_id)
     
     file.write_struct('>i', FCURVE_ARRAY_INDEX_MAP[property_id][fcurve.array_index])
-    
-    file.write_struct('>i', len(fcurve.keyframe_points))
-    for keyframe in fcurve.keyframe_points:
-        write_keyframe(file, keyframe)
+    file.write_list(fcurve.keyframe_points, write_keyframe)
 
 def write_action(file, action):
     file.write_padded_utf(action.name)
-    file.write_struct('>i', len(action.fcurves))
-    for fcurve in action.fcurves:
-        write_fcurve(file, fcurve)
+    file.write_list(action.fcurves, write_fcurve)
 
+def write_bone(file, bone):
+    file.write_padded_utf(bone.name)
+    file.write_struct('>i', bone.parent.dvm_bone_index if bone.parent is not None else -1)
+    file.write_vec3(bone.head)
+    file.write_vec3(bone.tail)
+    file.write_mat3(bone.matrix)
+        
 def write_armature(file, armature):
     file.write_padded_utf(armature.name)
-
+    for bone_index, bone in enumerate(armature.bones):
+        bone.dvm_bone_index = bone_index
+    file.write_list(armature.bones, write_bone)
+    
 def write_lamp(file, lamp):
     file.write_padded_utf(lamp.name)
 
@@ -160,40 +182,34 @@ class LoopVertexPointer:
     def __init__(self, loop_vertex):
         self.loop_vertex = loop_vertex
         loop_vertex.pointers.append(self)
-        
-def loop_vertices_equal(lva, lvb, has_tangents):
-    #Ensure indices are equal
+
+def loop_vertices_equal(lva, lvb, pmesh):
     if lva.loop.vertex_index != lvb.loop.vertex_index:
         return False
-
-    #Ensure normals are equal
-    for a, b in zip(lva.loop.normal, lvb.loop.normal):
-        if a != b:
-            return False
-            
-    #Ensure tangents are equal
-    if has_tangents:
+    
+    if pmesh.exp_normals:
+        for a, b in zip(lva.loop.normal, lvb.loop.normal):
+            if a != b:
+                return False
+    
+    if pmesh.exp_tangents:
         for a, b in zip(lva.loop.tangent, lvb.loop.tangent):
             if a != b:
                 return False
     
-    #Ensure uvs are equal
     for loopA, loopB, in zip(lva.uv_loops, lvb.uv_loops):
         for a, b, in zip(loopA.uv, loopB.uv):
             if a != b:
                 return False
     
-    #Ensure colors are equal
     for loopA, loopB, in zip(lva.color_loops, lvb.color_loops):
         for a, b, in zip(loopA.color, loopB.color):
             if a != b:
                 return False
     
-    #Ensure same number of groups
     if len(lva.vert.groups) != len(lvb.vert.groups):
         return False
     
-    #Ensure groups are equal
     for ga, gb, in zip(lva.vert.groups, lvb.vert.groups):
         if ga.group != gb.group:
             return False
@@ -203,10 +219,13 @@ def loop_vertices_equal(lva, lvb, has_tangents):
     return True
 
 class ProcessedMesh:
-    def __init__(self, mesh, use_tangents):
+    def __init__(self, mesh):
         #Set up fields
         self.num_uv_layers = len(mesh.uv_layers)
-        self.has_tangents = use_tangents and self.num_uv_layers > 0
+        self.exp_normals = mesh.dvm_exp_normal
+        self.exp_tangents = mesh.dvm_exp_tangent and self.num_uv_layers > 0
+        self.exp_groups = mesh.dvm_exp_groups
+        self.exp_mat_inds = mesh.dvm_exp_mat_inds
         self.num_color_layers = len(mesh.vertex_colors)
         self.num_groups = 0
         self.triangles = []
@@ -214,11 +233,11 @@ class ProcessedMesh:
         
         #Prepare mesh
         mesh.calc_tessface()
-        if self.has_tangents:
+        if self.exp_tangents:
             try:
-                mesh.calc_tangents()
+                mesh.calc_tangents(mesh.dvm_tan_uv_src)
             except:
-                self.has_tangents = False
+                self.exp_tangents = False
         else:
             mesh.calc_normals_split()
         
@@ -258,7 +277,7 @@ class ProcessedMesh:
             for loop_vertex in loop_vertices:
                 identical = None
                 for new_loop_vertex in new_loop_vertices:
-                    if loop_vertices_equal(loop_vertex, new_loop_vertex, self.has_tangents):
+                    if loop_vertices_equal(loop_vertex, new_loop_vertex, self):
                         identical = new_loop_vertex
                         for pointer in loop_vertex.pointers:
                             pointer.loop_vertex = new_loop_vertex
@@ -282,9 +301,16 @@ class ProcessedMesh:
             self.num_groups = max(self.num_groups, len(vertex.vert.groups))
 
 def write_mesh(file, mesh):
-    pmesh = ProcessedMesh(mesh, False)
+    pmesh = ProcessedMesh(mesh)
     
     file.write_padded_utf(mesh.name)
+    
+    export_flags = 0
+    export_flags |= 1 if pmesh.exp_normals else 0
+    export_flags |= 2 if pmesh.exp_tangents else 0
+    export_flags |= 4 if pmesh.exp_groups else 0
+    export_flags |= 8 if pmesh.exp_mat_inds else 0
+    file.write_struct('>i', export_flags)
     
     file.write_struct('>i', pmesh.num_uv_layers)
     for uv_layer in mesh.uv_layers:
@@ -293,54 +319,56 @@ def write_mesh(file, mesh):
     file.write_struct('>i', pmesh.num_color_layers)
     for color_layer in mesh.vertex_colors:
         file.write_padded_utf(color_layer.name)
-        
-    file.write_struct('>i', pmesh.has_tangents)
+    
     file.write_struct('>i', pmesh.num_groups)
     file.write_struct('>i', len(pmesh.vertices))
     
     for vertex in pmesh.vertices:
         file.write_vec3(vertex.vert.co)
     
-    for vertex in pmesh.vertices:
-        file.write_vec3(vertex.loop.normal)
-    
-    if pmesh.has_tangents:
+    if pmesh.exp_normals:
         for vertex in pmesh.vertices:
-            file.write_vec3(vertex.loop.tangent)
+            file.write_vec3(vertex.loop.normal)
     
     for uv_layer_i in range(pmesh.num_uv_layers):
         for vertex in pmesh.vertices:
             file.write_struct('>2f', *vertex.uv_loops[uv_layer_i].uv)
+            
+    if pmesh.exp_tangents:
+        for vertex in pmesh.vertices:
+            file.write_vec3(vertex.loop.tangent)
 
     for color_layer_i in range(pmesh.num_color_layers):
         for vertex in pmesh.vertices:
             file.write_struct('>3f', *vertex.color_loops[color_layer_i].color)
     
-    for vertex in pmesh.vertices:
-        groups_written = 0
-        for group in vertex.vert.groups:
-            file.write_struct('>i', group.group)
-            groups_written += 1
-        while groups_written < pmesh.num_groups:
-            file.write_struct('>i', -1)
-            groups_written += 1
-    
-    for vertex in pmesh.vertices:
-        groups_written = 0
-        for group in vertex.vert.groups:
-            file.write_struct('>f', group.weight)
-            groups_written += 1
-        while groups_written < pmesh.num_groups:
-            file.write_struct('>f', 0.0)
-            groups_written += 1
+    if pmesh.exp_groups:
+        for vertex in pmesh.vertices:
+            groups_written = 0
+            for group in vertex.vert.groups:
+                file.write_struct('>i', group.group)
+                groups_written += 1
+            while groups_written < pmesh.num_groups:
+                file.write_struct('>i', -1)
+                groups_written += 1
+        
+        for vertex in pmesh.vertices:
+            groups_written = 0
+            for group in vertex.vert.groups:
+                file.write_struct('>f', group.weight)
+                groups_written += 1
+            while groups_written < pmesh.num_groups:
+                file.write_struct('>f', 0.0)
+                groups_written += 1
     
     file.write(struct.pack('>i', len(pmesh.triangles)))
     for triangle in pmesh.triangles:
         for pointer in triangle.loop_vertex_pointers:
             file.write_struct('>i', pointer.loop_vertex.index)
     
-    for triangle in pmesh.triangles:
-        file.write_struct('>i', triangle.poly.material_index)
+    if pmesh.exp_mat_inds:
+        for triangle in pmesh.triangles:
+            file.write_struct('>i', triangle.poly.material_index)
 
 ########################
 ### OBJECT EXPORTING ###
@@ -349,7 +377,9 @@ def write_mesh(file, mesh):
 DATA_TYPE_IDS = {
     bpy.types.Action: 0,
     bpy.types.Armature: 1,
-    bpy.types.Lamp: 2,
+    bpy.types.PointLamp: 2,
+    bpy.types.SpotLamp: 2,
+    bpy.types.SunLamp: 2,
     bpy.types.Material: 3,
     bpy.types.Mesh: 4
 }
@@ -357,62 +387,62 @@ DATA_TYPE_IDS = {
 def write_vertex_group(file, vertex_group):
     file.write_padded_utf(vertex_group.name)
 
-def write_object(file, object, index_map):
+def write_pose(file, pose):
+    file.write_struct('>i', len(pose.bones))
+    for bone in pose.bones:
+        file.write_struct('>i', bone.bone.dvm_bone_index)
+        file.write_transform(bone)
+
+def write_object(file, object):
     data_type = type(object.data)
     rot_mode = object.rotation_mode
     
     file.write_padded_utf(object.name)
     
     if data_type in DATA_TYPE_IDS:
-        file.write_struct('>i', DATA_TYPE_IDS[data_type])
-        file.write_struct('>i', index_map[object.data])
+        file.write_struct('>h', DATA_TYPE_IDS[data_type])
+        file.write_struct('>h', object.data.dvm_array_index)
     else:
         file.write_struct('>i', -1)
     
-    file.write_vec3(object.location)
-    
-    if rot_mode == 'QUATERNION':
-        file.write_struct('>i', 0)
-        file.write_rot(object.rotation_quaternion)
-    elif rot_mode == 'AXIS_ANGLE':
-        file.write_struct('>i', 1)
-        file.write_rot(object.rotation_axis_angle)
+    if object.parent is not None:
+        file.write_struct('>i', object.parent.dvm_array_index)
     else:
         file.write_struct('>i', -1)
     
-    file.write_vec3(object.scale)
+    file.write_transform(object)
+    file.write_list(object.vertex_groups, write_vertex_group)
     
-    file.write_struct('>i', len(object.vertex_groups))
-    for vertex_group in object.vertex_groups:
-        write_vertex_group(file, vertex_group)
+    has_pose = object.pose is not None
+    file.write_struct('>i', has_pose)
+    if has_pose:
+        write_pose(file, object.pose)
     
     if object.animation_data is not None:
-        file.write_struct('>i', index_map[object.animation_data.action])
+        file.write_struct('>i', object.animation_data.action.dvm_array_index)
     else:
         file.write_struct('>i', -1)
 
-def write_scene(file, scene, index_map):
+def write_scene(file, scene):
     file.write_padded_utf(scene.name)
     file.write_struct('>3f', *scene.world.horizon_color)
     file.write_struct('>i', len(scene.objects))
     for object in scene.objects:
-        file.write_struct('>i', index_map[object])
+        file.write_struct('>i', object.dvm_array_index)
 
 ############
 ### MAIN ###
 ############
 
-def map_indices(index_map, *lists):
+def map_indices(*lists):
     for list in lists:
         for i, id in enumerate(list):
-            index_map[id] = i
+            id.dvm_array_index = i
 
 def write_list_as_block(file, magic_number, list, write_func, *args):
     file.write_struct('>i', magic_number)
     file.begin_block()
-    file.write_struct('>i', len(list))
-    for element in list:
-        write_func(file, element, *args)
+    file.write_list(list, write_func, *args)
     file.end_block()
             
 def export(filepath):
@@ -421,20 +451,19 @@ def export(filepath):
     if bpy.ops.object.mode_set.poll():
         bpy.ops.object.mode_set(mode='OBJECT')
     
-    index_map = {}
-    map_indices(index_map, bpy.data.actions, bpy.data.armatures, bpy.data.lamps,
-                           bpy.data.materials, bpy.data.meshes, bpy.data.objects)
+    map_indices(bpy.data.actions, bpy.data.armatures, bpy.data.lamps,
+                bpy.data.materials, bpy.data.meshes, bpy.data.objects)
     
     with DataFile(filepath) as file:
         file.write(b'\x9F\x0ADevilModel')
-        file.write_struct('>2h', 0, 6) #Major/minor version
+        file.write_struct('>2h', 0, 7) #Major/minor version
         write_list_as_block(file, 32, bpy.data.actions, write_action)
         write_list_as_block(file, 33, bpy.data.armatures, write_armature)
         write_list_as_block(file, 34, bpy.data.lamps, write_lamp)
         write_list_as_block(file, 35, bpy.data.materials, write_material)
         write_list_as_block(file, 36, bpy.data.meshes, write_mesh)
-        write_list_as_block(file, 37, bpy.data.objects, write_object, index_map)
-        write_list_as_block(file, 38, bpy.data.scenes, write_scene, index_map)
+        write_list_as_block(file, 37, bpy.data.objects, write_object)
+        write_list_as_block(file, 38, bpy.data.scenes, write_scene)
     
     print('DVM successfully exported.')
     return {'FINISHED'}

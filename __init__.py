@@ -20,6 +20,14 @@ class DVMExporter(bpy.types.Operator, ExportHelper):
     filename_ext = ".dvm"
     filter_glob = StringProperty(default="*.dvm", options={'HIDDEN'})
     
+    bpy.types.ID.dvm_array_index = bpy.props.IntProperty(name = "DVMArrayIndex")
+    bpy.types.Bone.dvm_bone_index = bpy.props.IntProperty(name = "DVMBoneIndex")
+    bpy.types.Mesh.dvm_exp_normal = bpy.props.BoolProperty(name = "DVMExpNormal")
+    bpy.types.Mesh.dvm_exp_tangent = bpy.props.BoolProperty(name = "DVMExpTangent")
+    bpy.types.Mesh.dvm_exp_groups = bpy.props.BoolProperty(name = "DVMExpGroups")
+    bpy.types.Mesh.dvm_exp_mat_inds = bpy.props.BoolProperty(name = "DVMExpMatInds")
+    bpy.types.Mesh.dvm_tan_uv_src = bpy.props.StringProperty(name = "DVMTanUVSrc")
+    
     def execute(self, context):
         from . import export_dvm
         imp.reload(export_dvm)
