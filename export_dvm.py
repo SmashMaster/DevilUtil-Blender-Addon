@@ -151,7 +151,7 @@ def write_bone(bone):
 def write_armature(armature):
     for bone_index, bone in enumerate(armature.bones):
         bone.dvm_bone_index = bone_index
-
+    
     write_padded_utf(armature.name)
     write_list(armature.bones, write_bone)
     
@@ -392,6 +392,9 @@ def write_pose(pose):
         write_padded_utf(bone.bone.name)
         write_transform(bone)
 
+def write_vertex_group(vertex_group):
+    write_padded_utf(vertex_group.name)
+        
 def write_object( object):
     data_type = type(object.data)
     rot_mode = object.rotation_mode
@@ -410,6 +413,7 @@ def write_object( object):
         write_struct('>i', -1)
     
     write_transform(object)
+    write_list(object.vertex_groups, write_vertex_group)
     
     has_pose = object.pose is not None
     write_struct('>i', has_pose)
