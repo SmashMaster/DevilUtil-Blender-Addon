@@ -395,7 +395,18 @@ def write_pose(pose):
 def write_vertex_group(vertex_group):
     write_padded_utf(vertex_group.name)
         
-def write_object( object):
+class IKConstraint:
+    def __init__(self, bone, constraint):
+        self.bone = bone
+        self.constraint = constraint
+        
+def write_ik_constraint(ik_constraint):
+    write_padded_utf(ik_constraint.bone.name)
+    write_padded_utf(ik_constraint.constraint.subtarget)
+    write_padded_utf(ik_constraint.constraint.pole_subtarget)
+    write_struct('>f', ik_constraint.constraint.pole_angle)
+
+def write_object(object):
     data_type = type(object.data)
     rot_mode = object.rotation_mode
     
@@ -419,6 +430,19 @@ def write_object( object):
     write_struct('>i', has_pose)
     if has_pose:
         write_pose(object.pose)
+        ik_constraints = []
+        for bone in object.pose.bones:
+            for constraint in bone.constraints:
+                if not isinstance(constraint, bpy.types.KinematicConstraint):
+                    continue
+                if constraint.chain_count != 2:
+                    continue
+                if constraint.target is None or constraint.subtarget == "":
+                    continue
+                if constraint.pole_target is None or constraint.pole_subtarget == "":
+                    continue
+                ik_constraints.append(IKConstraint(bone.bone, constraint))
+        write_list(ik_constraints, write_ik_constraint)
     
     if object.animation_data is not None:
         write_struct('>i', object.animation_data.action.dvm_array_index)
