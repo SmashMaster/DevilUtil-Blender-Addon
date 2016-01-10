@@ -144,6 +144,7 @@ def write_action(action):
 def write_bone(bone):
     write_padded_utf(bone.name)
     write_struct('>i', bone.parent.dvm_bone_index if bone.parent is not None else -1)
+    write_struct('>i', bone.use_inherit_rotation)
     write_vec3(bone.head_local)
     write_vec3(bone.tail_local)
     write_mat3(bone.matrix_local)
@@ -477,7 +478,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 8) #Major/minor version
+        write_struct('>2h', 0, 9) #Major/minor version
         write_list_as_block(32, bpy.data.actions, write_action)
         write_list_as_block(33, bpy.data.armatures, write_armature)
         write_list_as_block(34, bpy.data.lamps, write_lamp)
