@@ -88,6 +88,8 @@ def write_transform(object):
         write_struct('>i', -1)
     write_vec3(object.scale)
 
+### ACTION EXPORTING ###
+    
 FCURVE_INTERPOLATION_IDS = {
     'CONSTANT': 0,
     'LINEAR': 1,
@@ -141,6 +143,8 @@ def write_action(action):
     write_padded_utf(action.name)
     write_list(action.fcurves, write_fcurve)
 
+### ARMATURE EXPORTING ###
+    
 def write_bone(bone):
     write_padded_utf(bone.name)
     write_struct('>i', bone.parent.dvm_bone_index if bone.parent is not None else -1)
@@ -156,12 +160,27 @@ def write_armature(armature):
     write_padded_utf(armature.name)
     write_list(armature.bones, write_bone)
     
+### CURVE EXPORTING ###
+
+def write_spline_point(point):
+    write_vec3(point.co)
+    write_vec3(point.handle_left)
+    write_vec3(point.handle_right)
+
+def write_spline(spline):
+    write_struct('>i', spline.use_cyclic_u)
+    write_list(spline.bezier_points, write_spline_point)
+
+def write_curve(curve):
+    write_padded_utf(curve.name)
+    write_list(curve.splines, write_spline)
+    
 def write_lamp(lamp):
     write_padded_utf(lamp.name)
 
 def write_material(material):
     write_padded_utf(material.name)
-
+    
 ######################
 ### MESH EXPORITNG ###
 ######################
@@ -472,20 +491,22 @@ def export(filepath):
     if bpy.ops.object.mode_set.poll():
         bpy.ops.object.mode_set(mode='OBJECT')
     
-    map_indices(bpy.data.actions, bpy.data.armatures, bpy.data.lamps,
-                bpy.data.materials, bpy.data.meshes, bpy.data.objects)
+    map_indices(bpy.data.actions, bpy.data.armatures, bpy.data.curves,
+                bpy.data.lamps, bpy.data.materials, bpy.data.meshes,
+                bpy.data.objects)
     
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 9) #Major/minor version
-        write_list_as_block(32, bpy.data.actions, write_action)
-        write_list_as_block(33, bpy.data.armatures, write_armature)
-        write_list_as_block(34, bpy.data.lamps, write_lamp)
-        write_list_as_block(35, bpy.data.materials, write_material)
-        write_list_as_block(36, bpy.data.meshes, write_mesh)
-        write_list_as_block(37, bpy.data.objects, write_object)
-        write_list_as_block(38, bpy.data.scenes, write_scene)
+        write_struct('>2h', 0, 10) #Major/minor version
+        write_list_as_block(1112276993, bpy.data.actions, write_action)
+        write_list_as_block(1112276994, bpy.data.armatures, write_armature)
+        write_list_as_block(1112276995, bpy.data.curves, write_curve)
+        write_list_as_block(1112276996, bpy.data.lamps, write_lamp)
+        write_list_as_block(1112276997, bpy.data.materials, write_material)
+        write_list_as_block(1112276998, bpy.data.meshes, write_mesh)
+        write_list_as_block(1112276999, bpy.data.objects, write_object)
+        write_list_as_block(1112277000, bpy.data.scenes, write_scene)
     
     print('DVM successfully exported.')
     return {'FINISHED'}
