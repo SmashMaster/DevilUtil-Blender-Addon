@@ -59,10 +59,15 @@ def write_list(list, write_func, *args):
     for element in list:
         write_func(element, *args)
 
-def write_list_as_block(magic_number, list, write_func, *args):
+def write_datablock(magic_number, id_list, write_func, *args):
+    local_ids = []
+    for id in id_list:
+        if id.library is None:
+            local_ids.append(id)
+    
     write_struct('>i', magic_number)
     begin_block()
-    write_list(list, write_func, *args)
+    write_list(local_ids, write_func, *args)
     end_block()
 
 def write_vec3(v):
@@ -87,6 +92,11 @@ def write_transform(object):
     else:
         write_struct('>i', -1)
     write_vec3(object.scale)
+
+### LIBRARY EXPORTING ###
+
+def write_library(library):
+    write_padded_utf(library.filepath)
 
 ### ACTION EXPORTING ###
     
@@ -397,13 +407,16 @@ def write_mesh(mesh):
 ########################
 
 DATA_TYPE_IDS = {
-    bpy.types.Action: 0,
-    bpy.types.Armature: 1,
-    bpy.types.PointLamp: 2,
-    bpy.types.SpotLamp: 2,
-    bpy.types.SunLamp: 2,
-    bpy.types.Material: 3,
-    bpy.types.Mesh: 4
+    bpy.types.Library: 0,
+    bpy.types.Action: 1,
+    bpy.types.Armature: 2,
+    bpy.types.Curve: 3,
+    bpy.types.PointLamp: 4,
+    bpy.types.SpotLamp: 4,
+    bpy.types.SunLamp: 4,
+    bpy.types.Material: 5,
+    bpy.types.Mesh: 6,
+    bpy.types.Scene: 7
 }
 
 def write_pose(pose):
@@ -433,8 +446,14 @@ def write_object(object):
     write_padded_utf(object.name)
     
     if data_type in DATA_TYPE_IDS:
-        write_struct('>h', DATA_TYPE_IDS[data_type])
-        write_struct('>h', object.data.dvm_array_index)
+        write_struct('>i', DATA_TYPE_IDS[data_type])
+        
+        if object.data.library is None:
+            write_struct('>i', -1)
+            write_struct('>i', object.data.dvm_array_index)
+        else:
+            write_struct('>i', object.data.library.dvm_array_index)
+            write_padded_utf(object.data.name)
     else:
         write_struct('>i', -1)
     
@@ -482,8 +501,14 @@ def write_scene(scene):
 
 def map_indices(*lists):
     for list in lists:
+        i = 0
         for i, id in enumerate(list):
-            id.dvm_array_index = i
+            if id.library is None: 
+                id.dvm_array_index = i
+                i += 1
+            else:
+                id.dvm_array_index = -1
+                    
  
 def export(filepath):
     print('Exporting DVM...')
@@ -491,22 +516,23 @@ def export(filepath):
     if bpy.ops.object.mode_set.poll():
         bpy.ops.object.mode_set(mode='OBJECT')
     
-    map_indices(bpy.data.actions, bpy.data.armatures, bpy.data.curves,
-                bpy.data.lamps, bpy.data.materials, bpy.data.meshes,
-                bpy.data.objects)
+    map_indices(bpy.data.libraries, bpy.data.actions, bpy.data.armatures,
+                bpy.data.curves, bpy.data.lamps, bpy.data.materials,
+                bpy.data.meshes, bpy.data.objects)
     
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 10) #Major/minor version
-        write_list_as_block(1112276993, bpy.data.actions, write_action)
-        write_list_as_block(1112276994, bpy.data.armatures, write_armature)
-        write_list_as_block(1112276995, bpy.data.curves, write_curve)
-        write_list_as_block(1112276996, bpy.data.lamps, write_lamp)
-        write_list_as_block(1112276997, bpy.data.materials, write_material)
-        write_list_as_block(1112276998, bpy.data.meshes, write_mesh)
-        write_list_as_block(1112276999, bpy.data.objects, write_object)
-        write_list_as_block(1112277000, bpy.data.scenes, write_scene)
+        write_struct('>2h', 0, 11) #Major/minor version
+        write_datablock(1112276993, bpy.data.libraries, write_library)
+        write_datablock(1112276994, bpy.data.actions, write_action)
+        write_datablock(1112276995, bpy.data.armatures, write_armature)
+        write_datablock(1112276996, bpy.data.curves, write_curve)
+        write_datablock(1112276997, bpy.data.lamps, write_lamp)
+        write_datablock(1112276998, bpy.data.materials, write_material)
+        write_datablock(1112276999, bpy.data.meshes, write_mesh)
+        write_datablock(1112277000, bpy.data.objects, write_object)
+        write_datablock(1112277001, bpy.data.scenes, write_scene)
     
     print('DVM successfully exported.')
     return {'FINISHED'}
