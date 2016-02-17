@@ -148,10 +148,15 @@ def write_fcurve(fcurve):
     
     write_struct('>i', FCURVE_ARRAY_INDEX_MAP[property_id][fcurve.array_index])
     write_list(fcurve.keyframe_points, write_keyframe)
+    
+def write_marker(marker):
+    write_padded_utf(marker.name)
+    write_struct('>i', marker.frame)
 
 def write_action(action):
     write_padded_utf(action.name)
     write_list(action.fcurves, write_fcurve)
+    write_list(action.pose_markers, write_marker)
 
 ### ARMATURE EXPORTING ###
     
@@ -523,7 +528,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 11) #Major/minor version
+        write_struct('>2h', 0, 12) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
