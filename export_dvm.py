@@ -464,6 +464,7 @@ def write_object(object):
     
     if object.parent is not None:
         write_struct('>i', object.parent.dvm_array_index)
+        write_padded_utf(object.parent_bone)
     else:
         write_struct('>i', -1)
     
@@ -488,7 +489,7 @@ def write_object(object):
                 ik_constraints.append(IKConstraint(bone.bone, constraint))
         write_list(ik_constraints, write_ik_constraint)
     
-    if object.animation_data is not None:
+    if object.animation_data is not None and object.animation_data.action is not None:
         write_struct('>i', object.animation_data.action.dvm_array_index)
     else:
         write_struct('>i', -1)
@@ -528,7 +529,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 12) #Major/minor version
+        write_struct('>2h', 0, 13) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
