@@ -149,6 +149,11 @@ def write_fcurve(fcurve):
     write_struct('>i', FCURVE_ARRAY_INDEX_MAP[property_id][fcurve.array_index])
     write_list(fcurve.keyframe_points, write_keyframe)
     
+class Marker:
+    def __init__(self, name, frame):
+        self.name = name
+        self.frame = frame
+    
 def write_marker(marker):
     write_padded_utf(marker.name)
     write_struct('>i', marker.frame)
@@ -156,7 +161,13 @@ def write_marker(marker):
 def write_action(action):
     write_padded_utf(action.name)
     write_list(action.fcurves, write_fcurve)
-    write_list(action.pose_markers, write_marker)
+    
+    markers = []
+    for marker in action.pose_markers:
+        for name in marker.name.split('+'):
+            markers.append(Marker(name, marker.frame))
+    markers.sort(key=lambda marker: marker.frame)
+    write_list(markers, write_marker)
 
 ### ARMATURE EXPORTING ###
     
