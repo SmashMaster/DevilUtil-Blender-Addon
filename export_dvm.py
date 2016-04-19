@@ -436,11 +436,10 @@ DATA_TYPE_IDS = {
     bpy.types.Armature: 2,
     bpy.types.Curve: 3,
     bpy.types.PointLamp: 4,
-    bpy.types.SpotLamp: 4,
     bpy.types.SunLamp: 4,
-    bpy.types.Material: 5,
-    bpy.types.Mesh: 6,
-    bpy.types.Scene: 7
+    bpy.types.SpotLamp: 4,
+    bpy.types.Mesh: 5,
+    bpy.types.Scene: 6
 }
 
 def write_pose(pose):
@@ -555,7 +554,7 @@ def export(filepath):
         write_datablock(1112276996, bpy.data.curves, write_curve)
         write_datablock(1112276997, bpy.data.lamps, write_lamp)
         write_datablock(1112276998, bpy.data.meshes, write_mesh)
-        write_datablock(1112276699, bpy.data.objects, write_object)
+        write_datablock(1112276999, bpy.data.objects, write_object)
         write_datablock(1112277000, bpy.data.scenes, write_scene)
     
     print('DVM successfully exported.')
