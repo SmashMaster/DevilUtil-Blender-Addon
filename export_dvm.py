@@ -203,9 +203,17 @@ def write_curve(curve):
     
 def write_lamp(lamp):
     write_padded_utf(lamp.name)
-
-def write_material(material):
-    write_padded_utf(material.name)
+    write_struct('>3f', *(lamp.color*lamp.energy))
+    write_struct('>f', lamp.distance)
+    
+    if lamp.type == 'POINT':
+        write_struct('>i', 0)
+    elif lamp.type == 'SUN':
+        write_struct('>i', 1)
+    elif lamp.type == 'SPOT':
+        write_struct('>i', 2)
+    else:
+        write_struct('>i', -1)
     
 ######################
 ### MESH EXPORITNG ###
@@ -540,16 +548,15 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 13) #Major/minor version
+        write_struct('>2h', 0, 14) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
         write_datablock(1112276996, bpy.data.curves, write_curve)
         write_datablock(1112276997, bpy.data.lamps, write_lamp)
-        write_datablock(1112276998, bpy.data.materials, write_material)
-        write_datablock(1112276999, bpy.data.meshes, write_mesh)
-        write_datablock(1112277000, bpy.data.objects, write_object)
-        write_datablock(1112277001, bpy.data.scenes, write_scene)
+        write_datablock(1112276998, bpy.data.meshes, write_mesh)
+        write_datablock(1112276699, bpy.data.objects, write_object)
+        write_datablock(1112277000, bpy.data.scenes, write_scene)
     
     print('DVM successfully exported.')
     return {'FINISHED'}
