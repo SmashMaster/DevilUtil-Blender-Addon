@@ -83,14 +83,7 @@ def write_rot(r): #Works for quaternions and axis-angle
     
 def write_transform(object):
     write_vec3(object.location)
-    if object.rotation_mode == 'QUATERNION':
-        write_struct('>i', 0)
-        write_rot(object.rotation_quaternion)
-    elif object.rotation_mode == 'AXIS_ANGLE':
-        write_struct('>i', 1)
-        write_rot(object.rotation_axis_angle)
-    else:
-        write_struct('>i', -1)
+    write_rot(object.rotation_quaternion)
     write_vec3(object.scale)
 
 ### LIBRARY EXPORTING ###
@@ -464,13 +457,12 @@ def write_ik_constraint(ik_constraint):
 
 def write_object(object):
     data_type = type(object.data)
-    rot_mode = object.rotation_mode
     
     write_padded_utf(object.name)
+    write_padded_utf(object.dvm_type)
     
     if data_type in DATA_TYPE_IDS:
         write_struct('>i', DATA_TYPE_IDS[data_type])
-        
         if object.data.library is None:
             write_struct('>i', -1)
             write_struct('>i', object.data.dvm_array_index)
@@ -486,6 +478,7 @@ def write_object(object):
     else:
         write_struct('>i', -1)
     
+    object.rotation_mode = 'QUATERNION'
     write_transform(object)
     write_list(object.vertex_groups, write_vertex_group)
     
@@ -547,7 +540,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 14) #Major/minor version
+        write_struct('>2h', 0, 15) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)

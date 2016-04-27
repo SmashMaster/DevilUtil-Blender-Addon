@@ -2,8 +2,8 @@ bl_info = {
     "name": "DevilModel format (.dvm)",
     "description": "Exports DevilModel files.",
     "author": "SmashMaster",
-    "version": (0, 1),
-    "blender": (2, 74, 0),
+    "version": (0, 15),
+    "blender": (2, 27, 0),
     "location": "File > Export > DevilModel (.dvm)",
     "category": "Import-Export"}
 
@@ -20,13 +20,14 @@ class DVMExporter(bpy.types.Operator, ExportHelper):
     filename_ext = ".dvm"
     filter_glob = StringProperty(default="*.dvm", options={'HIDDEN'})
     
-    bpy.types.ID.dvm_array_index = bpy.props.IntProperty(name = "DVMArrayIndex")
-    bpy.types.Bone.dvm_bone_index = bpy.props.IntProperty(name = "DVMBoneIndex")
-    bpy.types.Mesh.dvm_exp_normal = bpy.props.BoolProperty(name = "DVMExpNormal")
-    bpy.types.Mesh.dvm_exp_tangent = bpy.props.BoolProperty(name = "DVMExpTangent")
-    bpy.types.Mesh.dvm_exp_groups = bpy.props.BoolProperty(name = "DVMExpGroups")
-    bpy.types.Mesh.dvm_exp_mat_inds = bpy.props.BoolProperty(name = "DVMExpMatInds")
-    bpy.types.Mesh.dvm_tan_uv_src = bpy.props.StringProperty(name = "DVMTanUVSrc")
+    bpy.types.ID.dvm_array_index = bpy.props.IntProperty(name = "DVM Array Index")
+    bpy.types.Bone.dvm_bone_index = bpy.props.IntProperty(name = "DVM Bone Index")
+    bpy.types.Mesh.dvm_exp_normal = bpy.props.BoolProperty(name = "DVM Export Normals", default=True)
+    bpy.types.Mesh.dvm_exp_tangent = bpy.props.BoolProperty(name = "DVM Export Tangents")
+    bpy.types.Mesh.dvm_exp_groups = bpy.props.BoolProperty(name = "DVM Export Groups")
+    bpy.types.Mesh.dvm_exp_mat_inds = bpy.props.BoolProperty(name = "Export Material Indices")
+    bpy.types.Mesh.dvm_tan_uv_src = bpy.props.StringProperty(name = "DVM Tangent UV Source")
+    bpy.types.Object.dvm_type = bpy.props.StringProperty(name = "DVM Type")
     
     def execute(self, context):
         from . import export_dvm
