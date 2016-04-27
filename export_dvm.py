@@ -535,7 +535,7 @@ def map_indices(*lists):
                     
  
 def export(filepath):
-    print('Exporting DVM...')
+    print("export dvm: " + filepath)
     
     if bpy.ops.object.mode_set.poll():
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -557,5 +557,4 @@ def export(filepath):
         write_datablock(1112276999, bpy.data.objects, write_object)
         write_datablock(1112277000, bpy.data.scenes, write_scene)
     
-    print('DVM successfully exported.')
     return {'FINISHED'}
