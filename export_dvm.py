@@ -507,7 +507,10 @@ def write_object(object):
 
 def write_scene(scene):
     write_padded_utf(scene.name)
-    write_struct('>3f', *scene.world.horizon_color)
+    if (scene.world is not None):
+        write_struct('>3f', *scene.world.horizon_color)
+    else:
+        write_struct('>3f', 0.0, 0.0, 0.0)
     write_struct('>i', len(scene.objects))
     for object in scene.objects:
         write_struct('>i', object.dvm_array_index)
