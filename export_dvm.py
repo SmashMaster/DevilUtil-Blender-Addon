@@ -423,18 +423,6 @@ def write_mesh(mesh):
 ### OBJECT EXPORTING ###
 ########################
 
-DATA_TYPE_IDS = {
-    bpy.types.Library: 0,
-    bpy.types.Action: 1,
-    bpy.types.Armature: 2,
-    bpy.types.Curve: 3,
-    bpy.types.PointLamp: 4,
-    bpy.types.SunLamp: 4,
-    bpy.types.SpotLamp: 4,
-    bpy.types.Mesh: 5,
-    bpy.types.Scene: 6
-}
-
 def write_pose(pose):
     write_struct('>i', len(pose.bones))
     for bone in pose.bones:
@@ -455,12 +443,29 @@ def write_ik_constraint(ik_constraint):
     write_padded_utf(ik_constraint.constraint.pole_subtarget)
     write_struct('>f', ik_constraint.constraint.pole_angle)
 
-def write_object(object):
-    data_type = type(object.data)
+DATA_TYPE_IDS = {
+    bpy.types.Library: 0,
+    bpy.types.Action: 1,
+    bpy.types.Armature: 2,
+    bpy.types.Curve: 3,
+    bpy.types.PointLamp: 4,
+    bpy.types.SunLamp: 4,
+    bpy.types.SpotLamp: 4,
+    bpy.types.Mesh: 5,
+    bpy.types.Scene: 6
+}
+
+EMPTY_TYPE_IDS = {
+    'PLAIN_AXES': 0,
+    'CUBE': 1,
+    'SPHERE': 2
+}
     
+def write_object(object):
     write_padded_utf(object.name)
     write_padded_utf(object.dvm_type)
     
+    data_type = type(object.data)
     if data_type in DATA_TYPE_IDS:
         write_struct('>i', DATA_TYPE_IDS[data_type])
         if object.data.library is None:
@@ -504,6 +509,12 @@ def write_object(object):
         write_struct('>i', object.animation_data.action.dvm_array_index)
     else:
         write_struct('>i', -1)
+        
+    empty_type = object.empty_draw_type
+    if empty_type in EMPTY_TYPE_IDS:
+        write_struct('>i', EMPTY_TYPE_IDS[empty_type])
+    else:
+        write_struct('>i', -1)
 
 def write_scene(scene):
     write_padded_utf(scene.name)
@@ -543,7 +554,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 15) #Major/minor version
+        write_struct('>2h', 0, 16) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
