@@ -366,12 +366,6 @@ class ProcessedMesh:
         for vertex in self.vertices:
             self.num_groups = max(self.num_groups, len(vertex.vert.groups))
 
-def float_to_byte(float):
-    return bytes([max(0, min(int(float*256.0), 255))])
-    
-def float_to_short(float):
-    return max(0, min(int(float*65536.0), 65535))
-
 def write_mesh(mesh):
     pmesh = ProcessedMesh(mesh)
     
@@ -392,7 +386,7 @@ def write_mesh(mesh):
     for color_layer in mesh.vertex_colors:
         write_padded_utf(color_layer.name)
     
-    write_struct('>i', pmesh.num_groups)
+    write_struct('>i', pmesh.num_groups if pmesh.exp_groups else 0)
     write_struct('>i', len(pmesh.vertices))
     
     for vertex in pmesh.vertices:
@@ -412,28 +406,25 @@ def write_mesh(mesh):
 
     for color_layer_i in range(pmesh.num_color_layers):
         for vertex in pmesh.vertices:
-            color = vertex.color_loops[color_layer_i].color
-            write_struct('>c', float_to_byte(color.r))
-            write_struct('>c', float_to_byte(color.g))
-            write_struct('>c', float_to_byte(color.b))
+            write_struct('>3f', *vertex.color_loops[color_layer_i].color)
     
     if pmesh.exp_groups:
         for vertex in pmesh.vertices:
             groups_written = 0
             for group in vertex.vert.groups:
-                write_struct('>h', group.group)
+                write_struct('>i', group.group)
                 groups_written += 1
             while groups_written < pmesh.num_groups:
-                write_struct('>h', -1)
+                write_struct('>i', -1)
                 groups_written += 1
         
         for vertex in pmesh.vertices:
             groups_written = 0
             for group in vertex.vert.groups:
-                write_struct('>H', float_to_short(group.weight))
+                write_struct('>f', group.weight)
                 groups_written += 1
             while groups_written < pmesh.num_groups:
-                write_struct('>H', 0)
+                write_struct('>f', 0.0)
                 groups_written += 1
     
     if pmesh.exp_mat_inds:
@@ -443,9 +434,9 @@ def write_mesh(mesh):
             if material is not None:
                 if material.library is not None:
                     raise ValueError("Cannot export library materials")
-                write_struct('>h', material.dvm_array_index)
+                write_struct('>i', material.dvm_array_index)
             else:
-                write_struct('>h', 0)
+                write_struct('>i', 0)
     
     write_struct('>i', len(pmesh.triangles))
     for triangle in pmesh.triangles:
