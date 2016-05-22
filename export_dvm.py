@@ -291,7 +291,7 @@ class ProcessedMesh:
         self.exp_normals = mesh.dvm_exp_normal
         self.exp_tangents = mesh.dvm_exp_tangent and self.num_uv_layers > 0
         self.exp_groups = mesh.dvm_exp_groups
-        self.exp_mat_inds = mesh.dvm_exp_mat_inds
+        self.exp_mat_inds = mesh.dvm_exp_mat_inds and len(mesh.materials) > 0
         self.num_color_layers = len(mesh.vertex_colors)
         self.num_groups = 0
         self.triangles = []
@@ -370,7 +370,7 @@ def float_to_byte(float):
     return bytes([max(0, min(int(float*256.0), 255))])
     
 def float_to_short(float):
-    return max(0, min(int(color.r*65536.0), 65535))
+    return max(0, min(int(float*65536.0), 65535))
 
 def write_mesh(mesh):
     pmesh = ProcessedMesh(mesh)
@@ -430,19 +430,22 @@ def write_mesh(mesh):
         for vertex in pmesh.vertices:
             groups_written = 0
             for group in vertex.vert.groups:
-                write_struct('>h', float_to_short(group.weight))
+                write_struct('>H', float_to_short(group.weight))
                 groups_written += 1
             while groups_written < pmesh.num_groups:
-                write_struct('>h', 0)
+                write_struct('>H', 0)
                 groups_written += 1
     
     if pmesh.exp_mat_inds:
         for vertex in pmesh.vertices:
             local_index = vertex.poly.material_index
-            material = pmesh.mesh.materials[local_index]
-            if (material.library is not None):
-                raise ValueError("Cannot export library materials")
-            write_struct('>h', material.dvm_array_index)
+            material = mesh.materials[local_index]
+            if material is not None:
+                if material.library is not None:
+                    raise ValueError("Cannot export library materials")
+                write_struct('>h', material.dvm_array_index)
+            else:
+                write_struct('>h', 0)
     
     write_struct('>i', len(pmesh.triangles))
     for triangle in pmesh.triangles:
