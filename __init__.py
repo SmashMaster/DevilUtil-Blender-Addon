@@ -26,7 +26,7 @@ class DVMExporter(bpy.types.Operator, ExportHelper):
     bpy.types.Mesh.dvm_exp_tangent = bpy.props.BoolProperty(name = "DVM Export Tangents")
     bpy.types.Mesh.dvm_tan_uv_src = bpy.props.StringProperty(name = "DVM Tangent UV Source")
     bpy.types.Mesh.dvm_exp_groups = bpy.props.BoolProperty(name = "DVM Export Groups")
-    bpy.types.Mesh.dvm_exp_mat_inds = bpy.props.BoolProperty(name = "DVM Export Material Indices")
+    bpy.types.Mesh.dvm_exp_mat_inds = bpy.props.BoolProperty(name = "DVM Export Material Indices", default = True)
     bpy.types.Object.dvm_type = bpy.props.StringProperty(name = "DVM Type")
     
     def execute(self, context):

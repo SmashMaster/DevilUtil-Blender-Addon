@@ -73,6 +73,9 @@ def write_datablock(magic_number, id_list, write_func, *args):
 def write_vec3(v):
     write_struct('>3f', v[1], v[2], v[0])
     
+def write_color(c, intensity):
+    write_struct('>3f', c.r*intensity, c.g*intensity, c.b*intensity)
+    
 def write_mat3(m):
     write_struct('>9f', m[1][1], m[1][2], m[1][0],
                         m[2][1], m[2][2], m[2][0],
@@ -196,7 +199,7 @@ def write_curve(curve):
     
 def write_lamp(lamp):
     write_padded_utf(lamp.name)
-    write_struct('>3f', *(lamp.color*lamp.energy))
+    write_color(lamp.color, lamp.energy)
     write_struct('>f', lamp.distance)
     
     if lamp.type == 'POINT':
@@ -207,6 +210,16 @@ def write_lamp(lamp):
         write_struct('>i', 2)
     else:
         write_struct('>i', -1)
+    
+### MATERIAL EXPORTING ###
+    
+def write_material(material):
+    write_padded_utf(material.name)
+    write_color(material.diffuse_color, material.diffuse_intensity)
+    write_color(material.specular_color, material.specular_intensity)
+    write_struct('>f', material.specular_hardness)
+    write_struct('>f', material.specular_ior)
+    write_struct('>f', material.emit)
     
 ######################
 ### MESH EXPORITNG ###
@@ -263,6 +276,10 @@ def loop_vertices_equal(lva, lvb, pmesh):
         if ga.group != gb.group:
             return False
         if ga.weight != gb.weight:
+            return False
+            
+    if pmesh.exp_mat_inds:
+        if lva.poly.material_index != lvb.poly.material_index:
             return False
     
     return True
@@ -349,6 +366,12 @@ class ProcessedMesh:
         for vertex in self.vertices:
             self.num_groups = max(self.num_groups, len(vertex.vert.groups))
 
+def float_to_byte(float):
+    return bytes([max(0, min(int(float*256.0), 255))])
+    
+def float_to_short(float):
+    return max(0, min(int(color.r*65536.0), 65535))
+
 def write_mesh(mesh):
     pmesh = ProcessedMesh(mesh)
     
@@ -389,35 +412,42 @@ def write_mesh(mesh):
 
     for color_layer_i in range(pmesh.num_color_layers):
         for vertex in pmesh.vertices:
-            write_struct('>3f', *vertex.color_loops[color_layer_i].color)
+            color = vertex.color_loops[color_layer_i].color
+            write_struct('>c', float_to_byte(color.r))
+            write_struct('>c', float_to_byte(color.g))
+            write_struct('>c', float_to_byte(color.b))
     
     if pmesh.exp_groups:
         for vertex in pmesh.vertices:
             groups_written = 0
             for group in vertex.vert.groups:
-                write_struct('>i', group.group)
+                write_struct('>h', group.group)
                 groups_written += 1
             while groups_written < pmesh.num_groups:
-                write_struct('>i', -1)
+                write_struct('>h', -1)
                 groups_written += 1
         
         for vertex in pmesh.vertices:
             groups_written = 0
             for group in vertex.vert.groups:
-                write_struct('>f', group.weight)
+                write_struct('>h', float_to_short(group.weight))
                 groups_written += 1
             while groups_written < pmesh.num_groups:
-                write_struct('>f', 0.0)
+                write_struct('>h', 0)
                 groups_written += 1
     
-    write(struct.pack('>i', len(pmesh.triangles)))
+    if pmesh.exp_mat_inds:
+        for vertex in pmesh.vertices:
+            local_index = vertex.poly.material_index
+            material = pmesh.mesh.materials[local_index]
+            if (material.library is not None):
+                raise ValueError("Cannot export library materials")
+            write_struct('>h', material.dvm_array_index)
+    
+    write_struct('>i', len(pmesh.triangles))
     for triangle in pmesh.triangles:
         for pointer in triangle.loop_vertex_pointers:
             write_struct('>i', pointer.loop_vertex.index)
-    
-    if pmesh.exp_mat_inds:
-        for triangle in pmesh.triangles:
-            write_struct('>i', triangle.poly.material_index)
 
 ########################
 ### OBJECT EXPORTING ###
@@ -554,14 +584,15 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 16) #Major/minor version
+        write_struct('>2h', 0, 17) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
         write_datablock(1112276996, bpy.data.curves, write_curve)
         write_datablock(1112276997, bpy.data.lamps, write_lamp)
-        write_datablock(1112276998, bpy.data.meshes, write_mesh)
-        write_datablock(1112276999, bpy.data.objects, write_object)
-        write_datablock(1112277000, bpy.data.scenes, write_scene)
+        write_datablock(1112276998, bpy.data.materials, write_material)
+        write_datablock(1112276999, bpy.data.meshes, write_mesh)
+        write_datablock(1112277000, bpy.data.objects, write_object)
+        write_datablock(1112277001, bpy.data.scenes, write_scene)
     
     return {'FINISHED'}
