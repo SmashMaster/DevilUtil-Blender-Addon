@@ -200,16 +200,12 @@ def write_curve(curve):
 def write_lamp(lamp):
     write_padded_utf(lamp.name)
     write_color(lamp.color, lamp.energy)
-    write_struct('>f', lamp.distance)
     
     if lamp.type == 'POINT':
         write_struct('>i', 0)
-    elif lamp.type == 'SUN':
+        write_struct('>f', lamp.distance)
+    else: #SUN
         write_struct('>i', 1)
-    elif lamp.type == 'SPOT':
-        write_struct('>i', 2)
-    else:
-        write_struct('>i', -1)
     
 ### MATERIAL EXPORTING ###
     
@@ -474,7 +470,6 @@ DATA_TYPE_IDS = {
     bpy.types.Curve: 3,
     bpy.types.PointLamp: 4,
     bpy.types.SunLamp: 4,
-    bpy.types.SpotLamp: 4,
     bpy.types.Mesh: 5,
     bpy.types.Scene: 6
 }
@@ -578,7 +573,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 17) #Major/minor version
+        write_struct('>2h', 0, 18) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
