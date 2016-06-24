@@ -2,7 +2,7 @@ bl_info = {
     "name": "DevilModel format (.dvm)",
     "description": "Exports DevilModel files.",
     "author": "SmashMaster",
-    "version": (0, 18),
+    "version": (0, 19),
     "blender": (2, 27, 0),
     "location": "File > Export > DevilModel (.dvm)",
     "category": "Import-Export"}

@@ -80,6 +80,12 @@ def write_mat3(m):
     write_struct('>9f', m[1][1], m[1][2], m[1][0],
                         m[2][1], m[2][2], m[2][0],
                         m[0][1], m[0][2], m[0][0])
+                        
+def write_mat4(m):
+    write_struct('>16f', m[1][1], m[1][2], m[1][0], m[1][3],
+                         m[2][1], m[2][2], m[2][0], m[2][3],
+                         m[0][1], m[0][2], m[0][0], m[0][3],
+                         m[3][1], m[3][2], m[3][0], m[3][3])
     
 def write_rot(r): #Works for quaternions and axis-angle
     write_struct('>4f', r[0], r[2], r[3], r[1])
@@ -499,6 +505,7 @@ def write_object(object):
     if object.parent is not None:
         write_struct('>i', object.parent.dvm_array_index)
         write_padded_utf(object.parent_bone)
+        write_mat4(object.matrix_parent_inverse)
     else:
         write_struct('>i', -1)
     
@@ -573,7 +580,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 18) #Major/minor version
+        write_struct('>2h', 0, 19) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
