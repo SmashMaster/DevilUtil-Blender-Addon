@@ -12,6 +12,7 @@ import bpy
 
 from bpy.props import StringProperty, BoolProperty
 from bpy_extras.io_utils import ExportHelper
+from bpy.types import Panel
 
 class DVMExporter(bpy.types.Operator, ExportHelper):
     bl_idname = "export_mesh.dvm"
@@ -36,6 +37,17 @@ class DVMExporter(bpy.types.Operator, ExportHelper):
 
 def menu_export(self, context):
     self.layout.operator(DVMExporter.bl_idname, text="DevilModel (.dvm)")
+    
+class DVM_object_menu(Panel):
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "object"
+    bl_label = "DevilModel"
+    
+    def draw(self, context):
+        layout = self.layout
+        ob = context.object
+        layout.prop(ob, "dvm_type")
 
 def register():
     bpy.utils.register_module(__name__)
