@@ -488,7 +488,11 @@ EMPTY_TYPE_IDS = {
     
 def write_object(object):
     write_padded_utf(object.name)
-    write_padded_utf(object.dvm_type)
+    
+    write_struct('>i', len(object.dvm_args))
+    for arg in object.dvm_args:
+        write_padded_utf(arg.name)
+        write_padded_utf(arg.value)
     
     data_type = type(object.data)
     if data_type in DATA_TYPE_IDS:
@@ -580,7 +584,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 19) #Major/minor version
+        write_struct('>2h', 0, 20) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
