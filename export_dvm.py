@@ -476,8 +476,10 @@ DATA_TYPE_IDS = {
     bpy.types.Curve: 3,
     bpy.types.PointLamp: 4,
     bpy.types.SunLamp: 4,
-    bpy.types.Mesh: 5,
-    bpy.types.Scene: 6
+    bpy.types.Material: 5,
+    bpy.types.Mesh: 6,
+    bpy.types.Object: 7,
+    bpy.types.Scene: 8
 }
 
 EMPTY_TYPE_IDS = {
@@ -588,7 +590,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 21) #Major/minor version
+        write_struct('>2h', 0, 22) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
