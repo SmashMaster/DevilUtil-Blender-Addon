@@ -508,8 +508,12 @@ def write_object(object):
     
     if object.parent is not None:
         write_struct('>i', object.parent.dvm_array_index)
-        write_padded_utf(object.parent_bone)
         write_mat4(object.matrix_parent_inverse)
+        if object.parent_type == 'BONE':
+            write_struct('>i', 1)
+            write_padded_utf(object.parent_bone)
+        else:
+            write_struct('>i', 0)
     else:
         write_struct('>i', -1)
     
@@ -584,7 +588,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 20) #Major/minor version
+        write_struct('>2h', 0, 21) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
