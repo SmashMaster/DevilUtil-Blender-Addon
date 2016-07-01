@@ -117,8 +117,7 @@ def write_keyframe(keyframe):
 FCURVE_PROPERTY_TYPE_IDS = {
     'location': 0,
     'rotation_quaternion': 1,
-    'rotation_axis_angle': 2,
-    'scale': 3
+    'scale': 2
 }
 
 FCURVE_ARRAY_INDEX_MAP = [
@@ -590,7 +589,7 @@ def export(filepath):
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 22) #Major/minor version
+        write_struct('>2h', 0, 23) #Major/minor version
         write_datablock(1112276993, bpy.data.libraries, write_library)
         write_datablock(1112276994, bpy.data.actions, write_action)
         write_datablock(1112276995, bpy.data.armatures, write_armature)
