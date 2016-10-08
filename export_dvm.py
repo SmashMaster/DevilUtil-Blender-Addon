@@ -59,13 +59,12 @@ def write_list(list, write_func, *args):
     for element in list:
         write_func(element, *args)
 
-def write_datablock(magic_number, id_list, write_func, *args):
+def write_datablock(id_list, write_func, *args):
     local_ids = []
     for id in id_list:
         if id.library is None:
             local_ids.append(id)
     
-    write_struct('>i', magic_number)
     begin_block()
     write_list(local_ids, write_func, *args)
     end_block()
@@ -221,6 +220,16 @@ def write_material(material):
     write_struct('>f', material.specular_hardness)
     write_struct('>f', material.specular_ior)
     write_struct('>f', material.emit)
+    
+    slots = [slot for slot in material.texture_slots if (slot is not None and slot.use)]
+    
+    write_struct('>i', len(slots))
+    for slot in slots:
+        write_struct('>i', slot.texture.dvm_array_index)
+        write_struct('>f', slot.diffuse_factor if slot.use_map_diffuse else 0.0)
+        write_struct('>f', slot.emit_factor if slot.use_map_emit else 0.0)
+        write_struct('>f', slot.specular_factor if slot.use_map_specular else 0.0)
+        write_struct('>f', slot.normal_factor if slot.use_map_normal else 0.0)
     
 ######################
 ### MESH EXPORITNG ###
@@ -551,6 +560,8 @@ def write_object(object):
     else:
         write_struct('>i', -1)
 
+### SCENE EXPORTING ###
+        
 def write_scene(scene):
     write_padded_utf(scene.name)
     if (scene.world is not None):
@@ -561,6 +572,16 @@ def write_scene(scene):
     for object in scene.objects:
         write_struct('>i', object.dvm_array_index)
 
+### TEXTURE EXPORTING ###
+    
+def write_texture(texture):
+    write_padded_utf(texture.name)
+    if (isinstance(texture, bpy.types.ImageTexture)):
+        write_struct('>i', 1)
+        write_padded_utf(texture.image.filepath)
+    else:
+        write_struct('>i', 0)
+        
 ############
 ### MAIN ###
 ############
@@ -584,20 +605,21 @@ def export(filepath):
     
     map_indices(bpy.data.libraries, bpy.data.actions, bpy.data.armatures,
                 bpy.data.curves, bpy.data.lamps, bpy.data.materials,
-                bpy.data.meshes, bpy.data.objects)
+                bpy.data.meshes, bpy.data.objects, bpy.data.textures)
     
     global __FILE__
     with DataFile(filepath) as __FILE__:
         write(b'\x9F\x0ADevilModel')
-        write_struct('>2h', 0, 23) #Major/minor version
-        write_datablock(1112276993, bpy.data.libraries, write_library)
-        write_datablock(1112276994, bpy.data.actions, write_action)
-        write_datablock(1112276995, bpy.data.armatures, write_armature)
-        write_datablock(1112276996, bpy.data.curves, write_curve)
-        write_datablock(1112276997, bpy.data.lamps, write_lamp)
-        write_datablock(1112276998, bpy.data.materials, write_material)
-        write_datablock(1112276999, bpy.data.meshes, write_mesh)
-        write_datablock(1112277000, bpy.data.objects, write_object)
-        write_datablock(1112277001, bpy.data.scenes, write_scene)
-    
+        write_struct('>2h', 0, 24) #Major/minor version
+        write_datablock(bpy.data.libraries, write_library)
+        write_datablock(bpy.data.actions, write_action)
+        write_datablock(bpy.data.armatures, write_armature)
+        write_datablock(bpy.data.curves, write_curve)
+        write_datablock(bpy.data.lamps, write_lamp)
+        write_datablock(bpy.data.materials, write_material)
+        write_datablock(bpy.data.meshes, write_mesh)
+        write_datablock(bpy.data.objects, write_object)
+        write_datablock(bpy.data.scenes, write_scene)
+        write_datablock(bpy.data.textures, write_texture)
+        
     return {'FINISHED'}
