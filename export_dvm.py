@@ -226,7 +226,7 @@ def write_material(material):
     write_struct('>i', len(slots))
     for slot in slots:
         write_struct('>i', slot.texture.dvm_array_index)
-        write_struct('>f', slot.diffuse_factor if slot.use_map_diffuse else 0.0)
+        write_struct('>f', slot.diffuse_color_factor if slot.use_map_color_diffuse else 0.0)
         write_struct('>f', slot.emit_factor if slot.use_map_emit else 0.0)
         write_struct('>f', slot.specular_factor if slot.use_map_specular else 0.0)
         write_struct('>f', slot.normal_factor if slot.use_map_normal else 0.0)
