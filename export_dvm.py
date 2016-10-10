@@ -1,4 +1,5 @@
 import bpy
+import bmesh
 import os
 import struct
 
@@ -307,6 +308,17 @@ class ProcessedMesh:
         self.triangles = []
         self.vertices = []
         
+        #Back up mesh before triangulation
+        self.backup = bmesh.new()
+        self.backup.from_mesh(mesh)
+        
+        #Triangulate mesh prior to exporting
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bmesh.ops.triangulate(bm, faces=bm.faces)
+        bm.to_mesh(mesh)
+        bm.free()
+        
         #Prepare mesh
         mesh.calc_tessface()
         if self.exp_tangents:
@@ -316,9 +328,12 @@ class ProcessedMesh:
                     uv_source = mesh.uv_layers[0].name
                 mesh.calc_tangents(uv_source)
             except Exception as e:
+                print(e)
                 self.exp_tangents = False
         else:
             mesh.calc_normals_split()
+            
+        bpy.ops.object.mode_set(mode='OBJECT')
         
         #Set up LoopVertex list
         loop_vertex_sets = [set() for i in range(len(mesh.vertices))]
@@ -455,6 +470,10 @@ def write_mesh(mesh):
     for triangle in pmesh.triangles:
         for pointer in triangle.loop_vertex_pointers:
             write_struct('>i', pointer.loop_vertex.index)
+            
+    #Undo triangulation
+    pmesh.backup.to_mesh(mesh)
+    pmesh.backup.free()
 
 ########################
 ### OBJECT EXPORTING ###
