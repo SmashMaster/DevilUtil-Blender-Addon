@@ -332,8 +332,6 @@ class ProcessedMesh:
                 self.exp_tangents = False
         else:
             mesh.calc_normals_split()
-            
-        bpy.ops.object.mode_set(mode='OBJECT')
         
         #Set up LoopVertex list
         loop_vertex_sets = [set() for i in range(len(mesh.vertices))]
