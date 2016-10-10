@@ -311,8 +311,11 @@ class ProcessedMesh:
         mesh.calc_tessface()
         if self.exp_tangents:
             try:
-                mesh.calc_tangents(mesh.dvm_tan_uv_src)
-            except:
+                uv_source = mesh.dvm_tan_uv_src
+                if not uv_source:
+                    uv_source = mesh.uv_layers[0].name
+                mesh.calc_tangents(uv_source)
+            except Exception as e:
                 self.exp_tangents = False
         else:
             mesh.calc_normals_split()

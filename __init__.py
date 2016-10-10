@@ -85,7 +85,7 @@ def register():
     bpy.types.ID.dvm_array_index = bpy.props.IntProperty(options = {'HIDDEN', 'SKIP_SAVE'})
     bpy.types.Bone.dvm_bone_index = bpy.props.IntProperty(options = {'HIDDEN', 'SKIP_SAVE'})
     bpy.types.Mesh.dvm_exp_normal = bpy.props.BoolProperty(name = "DVM Export Normals", default = True)
-    bpy.types.Mesh.dvm_exp_tangent = bpy.props.BoolProperty(name = "DVM Export Tangents")
+    bpy.types.Mesh.dvm_exp_tangent = bpy.props.BoolProperty(name = "DVM Export Tangents", default = True)
     bpy.types.Mesh.dvm_tan_uv_src = bpy.props.StringProperty(name = "DVM Tangent UV Source")
     bpy.types.Mesh.dvm_exp_groups = bpy.props.BoolProperty(name = "DVM Export Groups", default = True)
     bpy.types.Mesh.dvm_exp_mat_inds = bpy.props.BoolProperty(name = "DVM Export Material Indices", default = True)
